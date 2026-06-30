@@ -18,6 +18,7 @@ import (
 	"github.com/terramate-io/terramate/errors"
 	"github.com/terramate-io/terramate/generate/resolve"
 	"github.com/terramate-io/terramate/preempt"
+	"github.com/terramate-io/terramate/project"
 )
 
 // Registry stores several lists of common objects we may want to look up.
@@ -72,7 +73,7 @@ func BundleAwaitKeys(b *Bundle) []string {
 }
 
 // BundleFunc returns the `tm_bundle` function.
-func BundleFunc(ctx context.Context, reg *Registry, currentEnv *Environment, useAwait bool) function.Function {
+func BundleFunc(ctx context.Context, root *Root, reg *Registry, currentEnv *Environment, useAwait bool) function.Function {
 	return function.New(&function.Spec{
 		Params: []function.Parameter{
 			{
@@ -153,7 +154,7 @@ func BundleFunc(ctx context.Context, reg *Registry, currentEnv *Environment, use
 					}
 				}
 
-				return MakeObjectFromBundle(b), nil
+				return MakeObjectFromBundle(root, b), nil
 
 			}
 
@@ -168,7 +169,7 @@ func BundleFunc(ctx context.Context, reg *Registry, currentEnv *Environment, use
 }
 
 // BundlesFunc returns the `tm_bundles` function.
-func BundlesFunc(reg *Registry, currentEnv *Environment) function.Function {
+func BundlesFunc(root *Root, reg *Registry, currentEnv *Environment) function.Function {
 	return function.New(&function.Spec{
 		Params: []function.Parameter{
 			{
@@ -230,7 +231,7 @@ func BundlesFunc(reg *Registry, currentEnv *Environment) function.Function {
 
 			r := make([]cty.Value, 0, len(matched))
 			for _, b := range matched {
-				r = append(r, MakeObjectFromBundle(b))
+				r = append(r, MakeObjectFromBundle(root, b))
 			}
 			return cty.TupleVal(r), nil
 		},
@@ -238,7 +239,8 @@ func BundlesFunc(reg *Registry, currentEnv *Environment) function.Function {
 }
 
 // MakeObjectFromBundle converts a Bundle into a cty object value.
-func MakeObjectFromBundle(b *Bundle) cty.Value {
+// root is optional: when non-nil, stack IDs are looked up from the config tree.
+func MakeObjectFromBundle(root *Root, b *Bundle) cty.Value {
 	var uuidVal cty.Value
 	if b.UUID != "" {
 		uuidVal = cty.StringVal(b.UUID)
@@ -253,7 +255,57 @@ func MakeObjectFromBundle(b *Bundle) cty.Value {
 		"input":       cty.ObjectVal(b.Inputs),
 		"export":      cty.ObjectVal(b.Exports),
 		"environment": MakeEnvObject(b.Environment),
+		"stacks":      makeBundleStacksTuple(root, b),
 	})
+}
+
+func makeBundleStacksTuple(root *Root, b *Bundle) cty.Value {
+	paths := make([]project.Path, 0, len(b.Stacks))
+	for p, st := range b.Stacks {
+		if !st.Skipped {
+			paths = append(paths, p)
+		}
+	}
+	slices.SortFunc(paths, func(a, b project.Path) int {
+		return strings.Compare(a.String(), b.String())
+	})
+
+	if len(paths) == 0 {
+		return cty.EmptyTupleVal
+	}
+
+	stackVals := make([]cty.Value, 0, len(paths))
+	for _, p := range paths {
+		st := b.Stacks[p]
+
+		id := ""
+		if root != nil {
+			if tree, ok := root.Lookup(st.Dir); ok && tree.IsStack() {
+				id = tree.Node.Stack.ID
+			}
+		}
+
+		var tagsVal cty.Value
+		if len(st.Tags) == 0 {
+			tagsVal = cty.ListValEmpty(cty.String)
+		} else {
+			tagVals := make([]cty.Value, len(st.Tags))
+			for i, t := range st.Tags {
+				tagVals[i] = cty.StringVal(t)
+			}
+			tagsVal = cty.ListVal(tagVals)
+		}
+
+		stackVals = append(stackVals, cty.ObjectVal(map[string]cty.Value{
+			"path":        cty.StringVal(st.Dir.String()),
+			"id":          cty.StringVal(id),
+			"name":        cty.StringVal(st.Name),
+			"description": cty.StringVal(st.Description),
+			"tags":        tagsVal,
+		}))
+	}
+
+	return cty.TupleVal(stackVals)
 }
 
 // TmSourceFunc returns the `tm_source` function.

@@ -419,7 +419,7 @@ func EvalBundle(ctx context.Context, root *Root, resolveAPI resolve.API, evalctx
 
 	// We enable preemptable mode here. This function may suspend execution in case
 	// tm_bundle(key) is not available yet.
-	evalctx.SetFunction("tm_bundle", BundleFunc(ctx, reg, evaluated.Environment, true))
+	evalctx.SetFunction("tm_bundle", BundleFunc(ctx, root, reg, evaluated.Environment, true))
 
 	schemactx := typeschema.EvalContext{
 		Evalctx: evalctx,

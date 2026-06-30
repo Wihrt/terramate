@@ -160,8 +160,8 @@ func EvalComponent(root *Root, resolveAPI resolve.API, evalctx *eval.Context, co
 		return nil, nil, err
 	}
 
-	evalctx.SetFunction("tm_bundle", BundleFunc(context.TODO(), reg, evaluated.Environment, false))
-	evalctx.SetFunction("tm_bundles", BundlesFunc(reg, evaluated.Environment))
+	evalctx.SetFunction("tm_bundle", BundleFunc(context.TODO(), root, reg, evaluated.Environment, false))
+	evalctx.SetFunction("tm_bundles", BundlesFunc(root, reg, evaluated.Environment))
 
 	compNS := map[string]cty.Value{
 		"environment": MakeEnvObject(evaluated.Environment),

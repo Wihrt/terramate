@@ -164,7 +164,7 @@ func (m *Model) loadBundleDef(collIdx, bundleIdx int) error {
 		return nil
 	}
 
-	bundleEvalctx := newBundleEvalContext(est.Evalctx, est.Registry, m.selectedEnv)
+	bundleEvalctx := newBundleEvalContext(est.Evalctx, est.Root, est.Registry, m.selectedEnv)
 
 	if err := checkBundleEnabled(bundleEvalctx, bde.Define); err != nil {
 		return err
@@ -214,7 +214,7 @@ func (m *Model) finalizeBundleWithEnv() error {
 	est := m.EngineState
 	bde := m.selectedBundleDefEntry
 
-	bundleEvalctx := newBundleEvalContext(est.Evalctx, est.Registry, m.selectedEnv)
+	bundleEvalctx := newBundleEvalContext(est.Evalctx, est.Root, est.Registry, m.selectedEnv)
 
 	if err := checkBundleEnabled(bundleEvalctx, bde.Define); err != nil {
 		return err
@@ -280,7 +280,7 @@ func checkEnvRequired(evalctx *eval.Context, def *hcl.DefineBundle, envs []*conf
 	return nil
 }
 
-func newBundleEvalContext(evalctx *eval.Context, reg *config.Registry, env *config.Environment) *eval.Context {
+func newBundleEvalContext(evalctx *eval.Context, root *config.Root, reg *config.Registry, env *config.Environment) *eval.Context {
 	evalctx = evalctx.ChildContext()
 
 	var bundleVals map[string]cty.Value
@@ -292,8 +292,8 @@ func newBundleEvalContext(evalctx *eval.Context, reg *config.Registry, env *conf
 	bundleVals["environment"] = config.MakeEnvObject(env)
 	evalctx.SetNamespace("bundle", bundleVals)
 
-	evalctx.SetFunction(stdlib.Name("bundle"), config.BundleFunc(context.TODO(), reg, env, false))
-	evalctx.SetFunction(stdlib.Name("bundles"), config.BundlesFunc(reg, env))
+	evalctx.SetFunction(stdlib.Name("bundle"), config.BundleFunc(context.TODO(), root, reg, env, false))
+	evalctx.SetFunction(stdlib.Name("bundles"), config.BundlesFunc(root, reg, env))
 	return evalctx
 }
 

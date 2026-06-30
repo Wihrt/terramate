@@ -167,7 +167,7 @@ func TestTmBundles(t *testing.T) {
 		t.Helper()
 		rootdir := test.TempDir(t)
 		ctx := eval.NewContext(stdlib.Functions(rootdir, []string{}))
-		ctx.SetFunction("tm_bundles", config.BundlesFunc(reg, currentEnv))
+		ctx.SetFunction("tm_bundles", config.BundlesFunc(nil, reg, currentEnv))
 
 		val, err := ctx.Eval(test.NewExpr(t, expr))
 		assert.NoError(t, err)
@@ -327,7 +327,7 @@ func TestTmBundle(t *testing.T) {
 		t.Helper()
 		rootdir := test.TempDir(t)
 		ctx := eval.NewContext(stdlib.Functions(rootdir, []string{}))
-		ctx.SetFunction("tm_bundle", config.BundleFunc(t.Context(), reg, currentEnv, false))
+		ctx.SetFunction("tm_bundle", config.BundleFunc(t.Context(), nil, reg, currentEnv, false))
 		return ctx.Eval(test.NewExpr(t, expr))
 	}
 

@@ -205,8 +205,8 @@ func EvalBlocks(
 		evalctx := evalctx.Copy()
 
 		evalctx.SetFunction(stdlib.Name("vendor"), stdlib.VendorFunc(vendorTargetDir, vendorDir, vendorRequests))
-		evalctx.SetFunction(stdlib.Name("bundle"), config.BundleFunc(context.TODO(), reg, env, false))
-		evalctx.SetFunction(stdlib.Name("bundles"), config.BundlesFunc(reg, env))
+		evalctx.SetFunction(stdlib.Name("bundle"), config.BundleFunc(context.TODO(), root, reg, env, false))
+		evalctx.SetFunction(stdlib.Name("bundles"), config.BundlesFunc(root, reg, env))
 
 		dircfg, _ := root.Lookup(st.Dir)
 		file, skip, err := Eval(genFileBlock, dircfg, evalctx, isFromComponent)

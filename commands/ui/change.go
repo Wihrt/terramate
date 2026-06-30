@@ -76,8 +76,8 @@ func NewCreateChange(
 	values map[string]cty.Value,
 ) (Change, error) {
 	schemactx = schemactx.ChildContext()
-	schemactx.Evalctx.SetFunction(stdlib.Name("bundle"), config.BundleFunc(est.Context, est.Registry, activeEnv, false))
-	schemactx.Evalctx.SetFunction(stdlib.Name("bundles"), config.BundlesFunc(est.Registry, activeEnv))
+	schemactx.Evalctx.SetFunction(stdlib.Name("bundle"), config.BundleFunc(est.Context, est.Root, est.Registry, activeEnv, false))
+	schemactx.Evalctx.SetFunction(stdlib.Name("bundles"), config.BundlesFunc(est.Root, est.Registry, activeEnv))
 
 	// The form may or may not contain values for all defaults.
 	// In this step we re-run input evaluation like it would be done if this was a bundle instance that
@@ -184,8 +184,8 @@ func NewReconfigChange(
 	values map[string]cty.Value,
 ) (Change, error) {
 	schemactx = schemactx.ChildContext()
-	schemactx.Evalctx.SetFunction(stdlib.Name("bundle"), config.BundleFunc(est.Context, est.Registry, bundle.Environment, false))
-	schemactx.Evalctx.SetFunction(stdlib.Name("bundles"), config.BundlesFunc(est.Registry, bundle.Environment))
+	schemactx.Evalctx.SetFunction(stdlib.Name("bundle"), config.BundleFunc(est.Context, est.Root, est.Registry, bundle.Environment, false))
+	schemactx.Evalctx.SetFunction(stdlib.Name("bundles"), config.BundlesFunc(est.Root, est.Registry, bundle.Environment))
 
 	hostPath := bundle.Info.HostPath()
 	projPath := project.PrjAbsPath(est.Root.HostDir(), hostPath).String()
@@ -264,8 +264,8 @@ func NewPromoteChange(
 	values map[string]cty.Value,
 ) (Change, error) {
 	schemactx = schemactx.ChildContext()
-	schemactx.Evalctx.SetFunction(stdlib.Name("bundle"), config.BundleFunc(est.Context, est.Registry, env, false))
-	schemactx.Evalctx.SetFunction(stdlib.Name("bundles"), config.BundlesFunc(est.Registry, env))
+	schemactx.Evalctx.SetFunction(stdlib.Name("bundle"), config.BundleFunc(est.Context, est.Root, est.Registry, env, false))
+	schemactx.Evalctx.SetFunction(stdlib.Name("bundles"), config.BundlesFunc(est.Root, est.Registry, env))
 
 	hostPath := bundle.Info.HostPath()
 	projPath := project.PrjAbsPath(est.Root.HostDir(), hostPath).String()

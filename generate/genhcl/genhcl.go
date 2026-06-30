@@ -270,11 +270,11 @@ func EvalBlocks(
 		)
 		evalctx.SetFunction(
 			stdlib.Name("bundle"),
-			config.BundleFunc(context.TODO(), reg, env, false),
+			config.BundleFunc(context.TODO(), root, reg, env, false),
 		)
 		evalctx.SetFunction(
 			stdlib.Name("bundles"),
-			config.BundlesFunc(reg, env),
+			config.BundlesFunc(root, reg, env),
 		)
 
 		err := lets.Load(hclBlock.Lets, evalctx)

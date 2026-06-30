@@ -1150,6 +1150,8 @@ func (s *Spec) setupGlobals(evalctx *eval.Context) *eval.Context {
 }
 
 func (s *Spec) setupBundleContext(evalctx *eval.Context, reg *config.Registry, env *config.Environment) *eval.Context {
+	root := s.engine.Config()
+
 	var bundleVals map[string]cty.Value
 	if bundleNS, ok := evalctx.GetNamespace("bundle"); ok {
 		bundleVals = bundleNS.AsValueMap()
@@ -1159,8 +1161,8 @@ func (s *Spec) setupBundleContext(evalctx *eval.Context, reg *config.Registry, e
 	bundleVals["environment"] = config.MakeEnvObject(env)
 	evalctx.SetNamespace("bundle", bundleVals)
 
-	evalctx.SetFunction(stdlib.Name("bundle"), config.BundleFunc(context.TODO(), reg, env, false))
-	evalctx.SetFunction(stdlib.Name("bundles"), config.BundlesFunc(reg, env))
+	evalctx.SetFunction(stdlib.Name("bundle"), config.BundleFunc(context.TODO(), root, reg, env, false))
+	evalctx.SetFunction(stdlib.Name("bundles"), config.BundlesFunc(root, reg, env))
 	return evalctx
 }
 
