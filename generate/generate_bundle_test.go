@@ -12,6 +12,201 @@ import (
 	. "github.com/terramate-io/terramate/test/hclwrite/hclutils"
 )
 
+func TestGenerateBundleLets(t *testing.T) {
+	t.Parallel()
+
+	testCodeGeneration(t, []testcase{
+		{
+			name: "bundle lets computes values from inputs, available in component inputs",
+			layout: []string{
+				"s:stacks/stack-1",
+			},
+			configs: []hclconfig{
+				{
+					path: "/components/my-comp/v1",
+					add: Doc(
+						Block("define",
+							Labels("component", "metadata"),
+							Str("class", "my-comp"),
+							Str("name", "my-comp"),
+							Str("version", "1.0.0"),
+							Str("description", "My component"),
+						),
+						Block("define",
+							Labels("component", "input", "full_name"),
+							Str("prompt", "Full name"),
+							Str("description", "Full name"),
+						),
+						Block("generate_hcl",
+							Labels("main.tf"),
+							Block("content",
+								Expr("full_name", "component.input.full_name.value"),
+							),
+						),
+					),
+				},
+				{
+					path: "/bundles/my-bundle/v1",
+					add: Doc(
+						Block("define",
+							Labels("bundle", "metadata"),
+							Str("class", "my-bundle"),
+							Str("name", "my-bundle"),
+							Str("version", "1.0.0"),
+							Str("description", "My bundle"),
+						),
+						Block("define",
+							Labels("bundle", "input", "name"),
+							Str("prompt", "Name"),
+							Str("description", "Name"),
+						),
+						Block("define",
+							Labels("bundle", "lets"),
+							Expr("full_name", `"prefix-${bundle.input.name.value}"`),
+						),
+						Block("define",
+							Labels("bundle", "stack", "main"),
+							Block("metadata",
+								Str("path", "main"),
+								Str("name", "main"),
+							),
+							Block("component",
+								Labels("my-comp"),
+								Str("source", "/components/my-comp/v1"),
+								Block("inputs",
+									Expr("full_name", "bundle.let.full_name"),
+								),
+							),
+						),
+					),
+				},
+				{
+					path: "/stacks/stack-1",
+					add: Block("bundle",
+						Labels("name"),
+						Str("source", "/bundles/my-bundle/v1"),
+						Block("inputs",
+							Str("name", "my-app"),
+						),
+					),
+				},
+			},
+			want: []generatedFile{
+				{
+					dir: "/stacks/stack-1/main",
+					files: map[string]fmt.Stringer{
+						"component_my-comp_main.tf": stringer(`full_name = "prefix-my-app"`),
+					},
+				},
+			},
+			wantReport: genreport.Report{
+				Successes: []genreport.Result{
+					{
+						Dir:     project.NewPath("/stacks/stack-1/main"),
+						Created: []string{"component_my-comp_main.tf", "stack.tm.hcl"},
+					},
+				},
+			},
+		},
+		{
+			name: "bundle lets values are available in exports",
+			layout: []string{
+				"s:stacks/stack-1",
+			},
+			configs: []hclconfig{
+				{
+					path: "/components/my-comp/v1",
+					add: Doc(
+						Block("define",
+							Labels("component", "metadata"),
+							Str("class", "my-comp"),
+							Str("name", "my-comp"),
+							Str("version", "1.0.0"),
+							Str("description", "My component"),
+						),
+						Block("define",
+							Labels("component", "input", "computed"),
+							Str("prompt", "Computed"),
+							Str("description", "Computed"),
+						),
+						Block("generate_hcl",
+							Labels("out.tf"),
+							Block("content",
+								Expr("computed", "component.input.computed.value"),
+							),
+						),
+					),
+				},
+				{
+					path: "/bundles/provider/v1",
+					add: Doc(
+						Block("define",
+							Labels("bundle", "metadata"),
+							Str("class", "provider"),
+							Str("name", "provider"),
+							Str("version", "1.0.0"),
+							Str("description", "Provider bundle"),
+						),
+						Block("define",
+							Labels("bundle", "input", "prefix"),
+							Str("prompt", "Prefix"),
+							Str("description", "Prefix"),
+						),
+						Block("define",
+							Labels("bundle", "lets"),
+							Expr("computed", `"${bundle.input.prefix.value}-computed"`),
+						),
+						Block("define",
+							Labels("bundle", "export", "computed"),
+							Expr("value", "bundle.let.computed"),
+						),
+						Block("define",
+							Labels("bundle", "stack", "main"),
+							Block("metadata",
+								Str("path", "main"),
+								Str("name", "main"),
+							),
+							Block("component",
+								Labels("my-comp"),
+								Str("source", "/components/my-comp/v1"),
+								Block("inputs",
+									Expr("computed", "bundle.let.computed"),
+								),
+							),
+						),
+					),
+				},
+				{
+					path: "/stacks/stack-1",
+					add: Block("bundle",
+						Labels("prov"),
+						Str("source", "/bundles/provider/v1"),
+						Block("inputs",
+							Str("prefix", "hello"),
+						),
+					),
+				},
+			},
+			want: []generatedFile{
+				{
+					dir: "/stacks/stack-1/main",
+					files: map[string]fmt.Stringer{
+						"component_my-comp_out.tf": stringer(`computed = "hello-computed"`),
+					},
+				},
+			},
+			wantReport: genreport.Report{
+				Successes: []genreport.Result{
+					{
+						Dir:     project.NewPath("/stacks/stack-1/main"),
+						Created: []string{"component_my-comp_out.tf", "stack.tm.hcl"},
+					},
+				},
+			},
+		},
+	})
+}
+
 func TestGenerateBundle(t *testing.T) {
 	t.Parallel()
 

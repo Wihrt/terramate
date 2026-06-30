@@ -309,3 +309,73 @@ func TestTmBundles(t *testing.T) {
 		assert.EqualInts(t, 0, len(got))
 	})
 }
+
+func TestTmBundle(t *testing.T) {
+	t.Parallel()
+
+	newBundle := func(alias, class string, env *config.Environment) *config.Bundle {
+		return &config.Bundle{
+			Alias:              alias,
+			DefinitionMetadata: config.Metadata{Class: class},
+			Environment:        env,
+			Inputs:             map[string]cty.Value{},
+			Exports:            map[string]cty.Value{},
+		}
+	}
+
+	evalBundle := func(t *testing.T, reg *config.Registry, currentEnv *config.Environment, expr string) (cty.Value, error) {
+		t.Helper()
+		rootdir := test.TempDir(t)
+		ctx := eval.NewContext(stdlib.Functions(rootdir, []string{}))
+		ctx.SetFunction("tm_bundle", config.BundleFunc(t.Context(), reg, currentEnv, false))
+		return ctx.Eval(test.NewExpr(t, expr))
+	}
+
+	t.Run("found by alias returns bundle object", func(t *testing.T) {
+		reg := &config.Registry{
+			Bundles: []*config.Bundle{
+				newBundle("my-alias", "team", nil),
+			},
+		}
+		val, err := evalBundle(t, reg, nil, `tm_bundle("team", "my-alias")`)
+		assert.NoError(t, err)
+		assert.EqualStrings(t, "my-alias", val.GetAttr("alias").AsString())
+		assert.EqualStrings(t, "team", val.GetAttr("class").AsString())
+	})
+
+	t.Run("not found returns null", func(t *testing.T) {
+		reg := &config.Registry{}
+		val, err := evalBundle(t, reg, nil, `tm_bundle("team", "missing")`)
+		assert.NoError(t, err)
+		if !val.IsNull() {
+			t.Fatalf("expected null value, got %v", val)
+		}
+	})
+
+	t.Run("class mismatch returns null for non-await", func(t *testing.T) {
+		reg := &config.Registry{
+			Bundles: []*config.Bundle{
+				newBundle("my-alias", "other-class", nil),
+			},
+		}
+		val, err := evalBundle(t, reg, nil, `tm_bundle("team", "my-alias")`)
+		assert.NoError(t, err)
+		if !val.IsNull() {
+			t.Fatalf("expected null value for class mismatch in non-await mode, got %v", val)
+		}
+	})
+
+	t.Run("filters by environment", func(t *testing.T) {
+		envProd := &config.Environment{ID: "prod-id", Name: "prod"}
+		envDev := &config.Environment{ID: "dev-id", Name: "dev"}
+		reg := &config.Registry{
+			Bundles: []*config.Bundle{
+				newBundle("my-alias", "team", envProd),
+				newBundle("other-alias", "team", envDev),
+			},
+		}
+		val, err := evalBundle(t, reg, envProd, `tm_bundle("team", "my-alias")`)
+		assert.NoError(t, err)
+		assert.EqualStrings(t, "my-alias", val.GetAttr("alias").AsString())
+	})
+}

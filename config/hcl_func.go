@@ -36,15 +36,37 @@ func BundleUUIDAwaitKey(uuid, envID string) string {
 	return fmt.Sprintf("%s:%s", envID, uuid)
 }
 
+// BundleClassAliasAwaitKey computes a class-scoped preempt await key for a bundle alias.
+// Used when awaiting a bundle of a specific class, preventing same-alias bundles of
+// different classes from prematurely unblocking the waiter.
+func BundleClassAliasAwaitKey(class, alias, envID string) string {
+	return fmt.Sprintf("%s:%s:%s", envID, class, alias)
+}
+
+// BundleClassUUIDAwaitKey computes a class-scoped preempt await key for a bundle UUID.
+func BundleClassUUIDAwaitKey(class, uuid, envID string) string {
+	return fmt.Sprintf("%s:%s:%s", envID, class, uuid)
+}
+
 // BundleAwaitKeys returns all preempt await keys for the given bundle.
+// Each bundle produces both a plain alias/UUID key (for legacy callers) and a
+// class-scoped key so that tm_bundle(class, alias) can wait specifically for a
+// bundle of the expected class rather than any bundle sharing the same alias.
 func BundleAwaitKeys(b *Bundle) []string {
 	envID := ""
 	if b.Environment != nil {
 		envID = b.Environment.ID
 	}
-	keys := []string{BundleAliasAwaitKey(b.Alias, envID)}
+	class := b.DefinitionMetadata.Class
+	keys := []string{
+		BundleAliasAwaitKey(b.Alias, envID),
+		BundleClassAliasAwaitKey(class, b.Alias, envID),
+	}
 	if b.UUID != "" {
-		keys = append(keys, BundleUUIDAwaitKey(b.UUID, envID))
+		keys = append(keys,
+			BundleUUIDAwaitKey(b.UUID, envID),
+			BundleClassUUIDAwaitKey(class, b.UUID, envID),
+		)
 	}
 	return keys
 }
@@ -87,21 +109,33 @@ func BundleFunc(ctx context.Context, reg *Registry, currentEnv *Environment, use
 				pred = func(b *Bundle) bool {
 					return b.UUID == key
 				}
-				awaitKey = BundleUUIDAwaitKey(key, envID)
+				if useAwait {
+					// Use the class-scoped key so bundles with the same UUID but a
+					// different class cannot prematurely unblock this waiter.
+					awaitKey = BundleClassUUIDAwaitKey(class, key, envID)
+				} else {
+					awaitKey = BundleUUIDAwaitKey(key, envID)
+				}
 
 			} else {
 				keyKind = "alias"
 				pred = func(b *Bundle) bool {
 					return b.Alias == key
 				}
-				awaitKey = BundleAliasAwaitKey(key, envID)
+				if useAwait {
+					// Use the class-scoped key so bundles with the same alias but a
+					// different class cannot prematurely unblock this waiter.
+					awaitKey = BundleClassAliasAwaitKey(class, key, envID)
+				} else {
+					awaitKey = BundleAliasAwaitKey(key, envID)
+				}
 			}
 
 			if useAwait {
 				// This waits until the given preemptKey is ready.
 				if err := preempt.Await(ctx, awaitKey); err != nil {
 					if errors.IsKind(err, preempt.ErrUnresolvable) {
-						return cty.NilVal, errors.E("bundle with %s %q could not be resolved - either missing, or circular dependency", keyKind, key)
+						return cty.NilVal, errors.E("bundle with %s %q (class %q) could not be resolved - either missing, or circular dependency", keyKind, key, class)
 					}
 					return cty.NilVal, err
 				}
@@ -123,6 +157,11 @@ func BundleFunc(ctx context.Context, reg *Registry, currentEnv *Environment, use
 
 			}
 
+			if useAwait {
+				// The class-scoped await key guarantees the bundle was registered before
+				// we resumed. Reaching here is an internal invariant violation.
+				return cty.NilVal, errors.E("internal error: bundle with %s %q (class %q) was awaited but not found in registry - please report this bug", keyKind, key, class)
+			}
 			return cty.NullVal(cty.DynamicPseudoType), nil
 		},
 	})
