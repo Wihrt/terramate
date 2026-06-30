@@ -307,6 +307,15 @@ func (w *BundleRefWidget) WidgetContext() *WidgetContext {
 func (w *BundleRefWidget) Prepare() {
 	w.value = w.wctx.Value
 	w.cursor = 0
+	if w.value != cty.NilVal && !w.value.IsNull() && w.value.Type() == cty.String {
+		alias := w.value.AsString()
+		for i, opt := range MatchingBundleOptions(w.wctx.Registry, w.classID, w.wctx.Env) {
+			if opt.Alias == alias {
+				w.cursor = i
+				break
+			}
+		}
+	}
 }
 
 // Update handles keyboard input and returns the resulting signal.

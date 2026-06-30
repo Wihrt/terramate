@@ -502,10 +502,14 @@ func inputDefsForType(typ typeschema.Type, configAttrs []*config.ObjectAttribute
 	if len(configAttrs) > 0 {
 		return objectAttrsToInputDefs(configAttrs)
 	}
-	return []*config.InputDefinition{{
+	def := &config.InputDefinition{
 		Name: "value",
 		Type: typ,
-	}}
+	}
+	if _, ok := typ.(*typeschema.BundleType); ok {
+		def.Prompt.Text = "Select bundle"
+	}
+	return []*config.InputDefinition{def}
 }
 
 // subFormValuesFromItem extracts sub-form values from a cty.Value. For objects,
