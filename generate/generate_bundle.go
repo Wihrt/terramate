@@ -4,6 +4,9 @@
 package generate
 
 import (
+	"os"
+	"path/filepath"
+
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 
@@ -11,6 +14,7 @@ import (
 	"github.com/terramate-io/terramate/errors"
 	genreport "github.com/terramate-io/terramate/generate/report"
 	"github.com/terramate-io/terramate/hcl"
+	"github.com/terramate-io/terramate/project"
 	"github.com/terramate-io/terramate/stack"
 )
 
@@ -36,7 +40,23 @@ func (g *gState) generateBundleStack(bundle *config.Bundle, stackMeta config.Sta
 
 	stackTree, ok := g.root.Lookup(stackMeta.Dir)
 	if ok && stackTree.IsStack() {
-		logger.Debug().Msg("stack already exists: skipping")
+		stackFilePath := filepath.Join(stackMeta.Dir.HostPath(g.root.HostDir()), stack.DefaultFilename)
+		if _, statErr := os.Lstat(stackFilePath); statErr != nil {
+			logger.Debug().Msg("stack already exists but stack.tm.hcl not found: skipping metadata update")
+			stackTree.Node.Components = mergeComponentList(stackTree.Node.Components, stackMeta.Components, bundle.Source)
+			return
+		}
+		logger.Debug().Msg("stack already exists: updating metadata from bundle")
+		changed, err := stack.UpdateMetadata(g.root, stackMeta)
+		if err != nil {
+			report.AddFailure(stackMeta.Dir, err)
+			return
+		}
+		if changed {
+			dirReport := genreport.Dir{}
+			dirReport.AddChangedFile(stack.DefaultFilename)
+			report.AddDirReport(stackMeta.Dir, dirReport)
+		}
 		// attaching its runtime components
 		stackTree.Node.Components = mergeComponentList(stackTree.Node.Components, stackMeta.Components, bundle.Source)
 		return
@@ -47,10 +67,22 @@ func (g *gState) generateBundleStack(bundle *config.Bundle, stackMeta config.Sta
 		return
 	}
 
-	// We only write ID. Other attributes will be inherited dynamically from the bundle stack.
+	watch := make(project.Paths, len(stackMeta.Watch))
+	for i, w := range stackMeta.Watch {
+		watch[i] = project.NewPath(w)
+	}
+
 	stackCfg := config.Stack{
-		Dir: stackMeta.Dir,
-		ID:  uuid.NewString(),
+		Dir:         stackMeta.Dir,
+		ID:          uuid.NewString(),
+		Name:        stackMeta.Name,
+		Description: stackMeta.Description,
+		Tags:        stackMeta.Tags,
+		After:       stackMeta.After,
+		Before:      stackMeta.Before,
+		Wants:       stackMeta.Wants,
+		WantedBy:    stackMeta.WantedBy,
+		Watch:       watch,
 	}
 
 	logger.Debug().Msg("creating stack")
@@ -75,17 +107,6 @@ func (g *gState) generateBundleStack(bundle *config.Bundle, stackMeta config.Sta
 	if !ok {
 		panic(errors.E(errors.ErrInternal, "just created stack %s cannot be loaded", stackMeta.Dir))
 	}
-
-	st := stackTree.Node.Stack
-
-	st.Name = stackMeta.Name
-	st.Description = stackMeta.Description
-	st.Tags = stackMeta.Tags
-	st.After = stackMeta.After
-	st.Before = stackMeta.Before
-	st.Wants = stackMeta.Wants
-	st.WantedBy = stackMeta.WantedBy
-	st.Watch = stackMeta.Watch
 
 	logger.Debug().Msg("adding created file to report")
 

@@ -5,11 +5,17 @@ package generate_test
 
 import (
 	"fmt"
+	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/madlambda/spells/assert"
+	"github.com/terramate-io/terramate/config"
 	genreport "github.com/terramate-io/terramate/generate/report"
 	"github.com/terramate-io/terramate/project"
+	"github.com/terramate-io/terramate/test"
 	. "github.com/terramate-io/terramate/test/hclwrite/hclutils"
+	"github.com/terramate-io/terramate/test/sandbox"
 )
 
 func TestGenerateBundleLets(t *testing.T) {
@@ -519,6 +525,105 @@ func TestGenerateBundle(t *testing.T) {
 			},
 		},
 		{
+			name: "generate bundle writes all stack metadata to stack file",
+			layout: []string{
+				"s:stacks/stack-1",
+			},
+			configs: []hclconfig{
+				{
+					path: "/bundles/my-bundle/v1",
+					add: Doc(
+						Block("define",
+							Labels("bundle", "metadata"),
+							Str("class", "my-bundle"),
+							Str("name", "my-bundle"),
+							Str("version", "1.0.0"),
+							Str("description", "My bundle"),
+						),
+						Block("define",
+							Labels("bundle", "stack", "app"),
+							Block("metadata",
+								Str("path", "app"),
+								Str("name", "App Stack"),
+								Str("description", "The application stack"),
+								Expr("tags", `["env-prod", "team-platform"]`),
+								Expr("after", `["/infra"]`),
+								Expr("before", `["/destroy"]`),
+							),
+						),
+					),
+				},
+				{
+					path: "/stacks/stack-1",
+					add: Block("bundle",
+						Labels("my-bundle"),
+						Str("source", "/bundles/my-bundle/v1"),
+					),
+				},
+			},
+			want: []generatedFile{},
+			wantReport: genreport.Report{
+				Successes: []genreport.Result{
+					{
+						Dir:     project.NewPath("/stacks/stack-1/app"),
+						Created: []string{"stack.tm.hcl"},
+					},
+				},
+			},
+		},
+		{
+			name: "re-generate updates existing stack metadata from bundle",
+			layout: []string{
+				"s:stacks/stack-1",
+				// Pre-existing stack created by a previous generate, but with stale/manual metadata
+				`f:stacks/stack-1/app/stack.tm.hcl:stack {
+  id          = "stable-existing-id"
+  name        = "Old Manual Name"
+  description = "Old description"
+  tags        = ["old-tag"]
+}`,
+			},
+			configs: []hclconfig{
+				{
+					path: "/bundles/my-bundle/v1",
+					add: Doc(
+						Block("define",
+							Labels("bundle", "metadata"),
+							Str("class", "my-bundle"),
+							Str("name", "my-bundle"),
+							Str("version", "1.0.0"),
+							Str("description", "My bundle"),
+						),
+						Block("define",
+							Labels("bundle", "stack", "app"),
+							Block("metadata",
+								Str("path", "app"),
+								Str("name", "Bundle Stack Name"),
+								Str("description", "Bundle description"),
+								Expr("tags", `["bundle-tag"]`),
+							),
+						),
+					),
+				},
+				{
+					path: "/stacks/stack-1",
+					add: Block("bundle",
+						Labels("my-bundle"),
+						Str("source", "/bundles/my-bundle/v1"),
+					),
+				},
+			},
+			want: []generatedFile{},
+			wantReport: genreport.Report{
+				Successes: []genreport.Result{
+					{
+						Dir:     project.NewPath("/stacks/stack-1/app"),
+						Changed: []string{"stack.tm.hcl"},
+					},
+				},
+			},
+		},
+		{
 			name: "don't generate files in .terramate/ for bundle references",
 			layout: []string{
 				`s:.terramate/stack:id=s1;tags=["genstack"]`,
@@ -569,4 +674,138 @@ func TestGenerateBundle(t *testing.T) {
 			wantReport: genreport.Report{},
 		},
 	})
+}
+
+func TestGenerateBundleStackMetadataContent(t *testing.T) {
+	t.Parallel()
+
+	s := sandbox.NoGit(t, true)
+	s.BuildTree([]string{"s:stacks/stack-1"})
+
+	// Bundle definition: a stack with name, description, tags, after, before.
+	test.AppendFile(t, filepath.Join(s.RootDir(), "bundles/my-bundle/v1"), "bundle.tm.hcl", Doc(
+		Block("define",
+			Labels("bundle", "metadata"),
+			Str("class", "my-bundle"),
+			Str("name", "my-bundle"),
+			Str("version", "1.0.0"),
+			Str("description", "My bundle"),
+		),
+		Block("define",
+			Labels("bundle", "stack", "app"),
+			Block("metadata",
+				Str("path", "app"),
+				Str("name", "App Stack"),
+				Str("description", "The application stack"),
+				Expr("tags", `["env-prod", "team-platform"]`),
+				Expr("after", `["/infra"]`),
+				Expr("before", `["/destroy"]`),
+			),
+		),
+	).String())
+
+	// Bundle usage in stack-1.
+	test.AppendFile(t, filepath.Join(s.RootDir(), "stacks/stack-1"), "terramate.tm.hcl", Block("bundle",
+		Labels("my-bundle"),
+		Str("source", "/bundles/my-bundle/v1"),
+	).String())
+
+	generateAPI := newGenerateAPIForTest(t)
+	cfg, err := config.LoadRoot(s.RootDir(), false)
+	assert.NoError(t, err)
+
+	generateAPI.Do(cfg, project.NewPath("/"), 0, project.NewPath("/modules"), nil)
+
+	// Read the generated stack.tm.hcl and verify all metadata fields are present.
+	stackEntry := s.StackEntry("stacks/stack-1/app")
+	content := stackEntry.ReadFile("stack.tm.hcl")
+
+	for _, want := range []string{
+		"App Stack",             // name value
+		"The application stack", // description value
+		"env-prod",              // tag
+		"team-platform",         // tag
+		"/infra",                // after entry
+		"/destroy",              // before entry
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("stack.tm.hcl missing %q\ngot:\n%s", want, content)
+		}
+	}
+}
+
+func TestGenerateBundleReGenerateOverwritesMetadata(t *testing.T) {
+	t.Parallel()
+
+	s := sandbox.NoGit(t, true)
+	s.BuildTree([]string{
+		"s:stacks/stack-1",
+		// Pre-existing stack file with stale metadata from a previous generate run.
+		`f:stacks/stack-1/app/stack.tm.hcl:stack {
+  id          = "stable-existing-id"
+  name        = "Old Manual Name"
+  description = "Old description"
+  tags        = ["old-tag"]
+}`,
+	})
+
+	// Bundle definition that specifies updated metadata.
+	test.AppendFile(t, filepath.Join(s.RootDir(), "bundles/my-bundle/v1"), "bundle.tm.hcl", Doc(
+		Block("define",
+			Labels("bundle", "metadata"),
+			Str("class", "my-bundle"),
+			Str("name", "my-bundle"),
+			Str("version", "1.0.0"),
+			Str("description", "My bundle"),
+		),
+		Block("define",
+			Labels("bundle", "stack", "app"),
+			Block("metadata",
+				Str("path", "app"),
+				Str("name", "Bundle Stack Name"),
+				Str("description", "Bundle description"),
+				Expr("tags", `["bundle-tag"]`),
+			),
+		),
+	).String())
+
+	// Bundle usage in stack-1.
+	test.AppendFile(t, filepath.Join(s.RootDir(), "stacks/stack-1"), "terramate.tm.hcl", Block("bundle",
+		Labels("my-bundle"),
+		Str("source", "/bundles/my-bundle/v1"),
+	).String())
+
+	generateAPI := newGenerateAPIForTest(t)
+	cfg, err := config.LoadRoot(s.RootDir(), false)
+	assert.NoError(t, err)
+
+	generateAPI.Do(cfg, project.NewPath("/"), 0, project.NewPath("/modules"), nil)
+
+	// Read the regenerated stack.tm.hcl and verify bundle values overwrote stale ones.
+	stackEntry := s.StackEntry("stacks/stack-1/app")
+	content := stackEntry.ReadFile("stack.tm.hcl")
+
+	for _, want := range []string{
+		"Bundle Stack Name",  // bundle name must replace stale name
+		"Bundle description", // bundle description must replace stale description
+		"bundle-tag",         // bundle tag must replace stale tag
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("stack.tm.hcl missing bundle value %q; bundle values should overwrite stale metadata\ngot:\n%s", want, content)
+		}
+	}
+
+	if !strings.Contains(content, "stable-existing-id") {
+		t.Errorf("stack.tm.hcl should preserve the existing stack id; got:\n%s", content)
+	}
+
+	for _, stale := range []string{
+		"Old Manual Name",
+		"Old description",
+		"old-tag",
+	} {
+		if strings.Contains(content, stale) {
+			t.Errorf("stack.tm.hcl still contains stale value %q; bundle should have overwritten it\ngot:\n%s", stale, content)
+		}
+	}
 }
