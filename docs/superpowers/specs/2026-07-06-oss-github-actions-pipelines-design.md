@@ -113,7 +113,12 @@ jobs:
 
 Minimal OSS config:
 
-- `builds`: one entry per binary (`terramate`, `terramate-ls`), `goos: [linux, darwin, windows]`, `goarch: [amd64, arm64]`, reusing the existing static-build flags from `makefiles/unix.mk` (`CGO_ENABLED=0`, `-extldflags "-static"`).
+- `builds`: one entry per binary (`terramate`, `terramate-ls`), reusing the existing static-build flags from `makefiles/unix.mk` (`CGO_ENABLED=0`, `-extldflags "-static"`). Target matrix:
+  - `linux`: `amd64`, `arm64`
+  - `darwin`: `amd64`, `arm64`
+  - `windows`: `amd64`
+  - No `386` (legacy 32-bit x86) on any OS — negligible real-world usage for a modern IaC CLI, and `darwin/386` is not buildable at all (Go and macOS both dropped 32-bit support). Use `ignore:` entries to exclude the `windows/arm64`, `linux/386`, `darwin/386`, `windows/386` combinations GoReleaser would otherwise generate from the default matrix.
+  - No existing `.goreleaser.yml` was found in the repository to copy this matrix from — the current Pro-based release pipeline's config lives outside this repo (private/vault). This matrix is inferred from the existing CI evidence (the `ci-sync-*` workflows test on `macos-15`, an arm64 runner) and standard Go CLI conventions, then confirmed with the user.
 - `archives`: `tar.gz` for linux/darwin, `zip` for windows.
 - `checksum`: default (`checksums.txt`).
 - `changelog`: commit-log-based changelog, excluding commits with a `chore:` prefix (the repo's existing convention, confirmed via `git log`: `feat:`, `fix:`, `chore:`, `x:` prefixes are in active use).
