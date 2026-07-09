@@ -2,14 +2,16 @@
 # SPDX-License-Identifier: MPL-2.0
 
 name: interop
+# Auto-trigger disabled on forks: requires paid Blacksmith runners that only
+# exist on terramate-io/terramate. Restore the push trigger upstream.
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - '**.go'
-      - '**.tm'
-      - '**.tm.hcl'
+  # push:
+  #   branches:
+  #     - main
+  #   paths:
+  #     - '**.go'
+  #     - '**.tm'
+  #     - '**.tm.hcl'
   workflow_dispatch:
 
 jobs:

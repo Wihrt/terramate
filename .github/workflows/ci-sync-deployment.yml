@@ -3,11 +3,15 @@
 
 name: ci
 
+# Auto-trigger disabled on forks: requires paid Blacksmith runners and
+# Terramate Cloud secrets that only exist on terramate-io/terramate. Use
+# OSS / Main (oss-main.yml) instead. Restore the push trigger upstream.
 on:
-  push:
-    branches:
-      - main
-      - v*.x # backporting branches.
+  # push:
+  #   branches:
+  #     - main
+  #     - v*.x # backporting branches.
+  workflow_dispatch:
 
 jobs:
   build_test:

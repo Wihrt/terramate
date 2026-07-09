@@ -3,10 +3,14 @@
 
 name: release
 
+# Auto-trigger disabled on forks: requires paid Blacksmith runners and a
+# licensed GoReleaser Pro key that only exist on terramate-io/terramate. Use
+# OSS / Release (oss-release.yml) instead. Restore the push trigger upstream.
 on:
-  push:
-    tags:
-      - '*'
+  # push:
+  #   tags:
+  #     - '*'
+  workflow_dispatch:
 
 permissions:
   contents: write

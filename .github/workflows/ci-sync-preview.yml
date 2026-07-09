@@ -3,8 +3,12 @@
 
 name: ci
 
+# Auto-trigger disabled on forks: requires paid Blacksmith runners and
+# Terramate Cloud secrets that only exist on terramate-io/terramate. Use
+# OSS / Pull Request (oss-pr.yml) instead. Restore `pull_request:` upstream.
 on:
-  pull_request:
+  # pull_request:
+  workflow_dispatch:
 
 jobs:
   build_test:
