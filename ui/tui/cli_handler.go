@@ -11,9 +11,6 @@ import (
 	"github.com/terramate-io/terramate/cloud/api/status"
 	"github.com/terramate-io/terramate/commands"
 	clonecmd "github.com/terramate-io/terramate/commands/clone"
-	clouddriftshowcmd "github.com/terramate-io/terramate/commands/cloud/drift/show"
-	cloudinfocmd "github.com/terramate-io/terramate/commands/cloud/info"
-	logincmd "github.com/terramate-io/terramate/commands/cloud/login"
 	compcmd "github.com/terramate-io/terramate/commands/completions"
 	componentcreatecmd "github.com/terramate-io/terramate/commands/component/create"
 	generateoriginscmd "github.com/terramate-io/terramate/commands/debug/show/generate_origins"
@@ -96,22 +93,6 @@ func SelectCommand(ctx context.Context, c *CLI, command string, flags any) (cmd 
 		return &compcmd.Spec{
 			Installer: parsedArgs.InstallCompletions,
 			KongCtx:   kctx,
-		}, nil
-
-	case "experimental cloud login": // Deprecated: use cloud login
-		fallthrough
-	case "cloud login":
-		if parsedArgs.Cloud.Login.Github {
-			return &logincmd.GithubSpec{
-				Verbosity: parsedArgs.Verbose,
-			}, nil
-		} else if parsedArgs.Cloud.Login.SSO {
-			return &logincmd.SSOSpec{
-				Verbosity: parsedArgs.Verbose,
-			}, nil
-		}
-		return &logincmd.GoogleSpec{
-			Verbosity: parsedArgs.Verbose,
 		}, nil
 
 	case "fmt", "fmt <files>":
@@ -368,19 +349,6 @@ func SelectCommand(ctx context.Context, c *CLI, command string, flags any) (cmd 
 				OnlyAllDependents:         parsedArgs.Run.OnlyAllDependents,
 				ExcludeAllDependents:      parsedArgs.Run.ExcludeAllDependents,
 			},
-		}, nil
-
-	case "cloud info":
-		c.SetCommandAnalytics("cloud-info")
-		return &cloudinfocmd.Spec{
-			Verbosity: parsedArgs.Verbose,
-		}, nil
-
-	case "cloud drift show":
-		c.SetCommandAnalytics("cloud-drift-show")
-		return &clouddriftshowcmd.Spec{
-			Verbosiness: parsedArgs.Verbose,
-			Target:      parsedArgs.Cloud.Drift.Show.Target,
 		}, nil
 
 	case "experimental eval":

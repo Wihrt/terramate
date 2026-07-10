@@ -96,20 +96,6 @@ type FlagSpec struct {
 		} `cmd:"" help:"Show configuration details of stacks."`
 	} `cmd:"" help:"Debug Terramate configuration."`
 
-	Cloud struct {
-		Login struct {
-			Google bool `optional:"true" help:"authenticate with google credentials"`
-			Github bool `optional:"true" help:"authenticate with github credentials"`
-			SSO    bool `optional:"true" help:"authenticate with SSO credentials"`
-		} `cmd:"" help:"Sign in to Terramate Cloud."`
-		Info  struct{} `cmd:"" help:"Show your current Terramate Cloud login status."`
-		Drift struct {
-			Show struct {
-				Target string `help:"Show stacks from the given deployment target."`
-			} `cmd:"" help:"Show the current drift of a stack."`
-		} `cmd:"" help:"Interact with Terramate Cloud Drift Detection."`
-	} `cmd:"" help:"Interact with Terramate Cloud"`
-
 	Trigger struct {
 		Stack        string `arg:"" optional:"true" name:"stack" predictor:"file" help:"The stacks path."`
 		Recursive    bool   `default:"false" help:"Recursively triggers all child stacks of the given path"`
@@ -189,15 +175,6 @@ type FlagSpec struct {
 			AsJSON bool              `help:"Outputs the result as a JSON value"`
 			Vars   []string          `arg:"" help:"variable to be retrieved" name:"var" passthrough:""`
 		} `cmd:"" help:"Get configuration value"`
-
-		Cloud struct {
-			Login struct{} `cmd:"" help:"login for cloud.terramate.io  (DEPRECATED)"`
-			Info  struct{} `cmd:"" help:"cloud information status (DEPRECATED)"`
-			Drift struct {
-				Show struct {
-				} `cmd:"" help:"show drifts  (DEPRECATED)"`
-			} `cmd:"" help:"manage cloud drifts  (DEPRECATED)"`
-		} `cmd:"" hidden:"" help:"Terramate Cloud commands (DEPRECATED)"`
 	} `cmd:"" help:"Use experimental features."`
 
 	InstallCompletions kongplete.InstallCompletions `cmd:"" help:"Install shell completions."`
