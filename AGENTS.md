@@ -14,7 +14,6 @@ This file provides guidance for AI coding agents working on the Terramate projec
 - `/hcl/` - HCL parsing and evaluation
 - `/config/` - Configuration management
 - `/stack/` - Stack orchestration
-- `/cloud/` - Terramate Cloud integration
 - `/e2etests/` - End-to-end tests
 - `/test/` - Test utilities
 
