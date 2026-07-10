@@ -17,16 +17,15 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # pin@v5
+      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # pin@v4.2.0
         with:
-          go-version-file: 'go.mod'
-          check-latest: true
+          install: true
 
-      - name: make build
-        run: make build
+      - name: mise run build
+        run: mise run build
 
-      - name: make generate (fail on drift)
-        run: make generate && git diff --exit-code
+      - name: mise run generate (fail on drift)
+        run: mise run generate && git diff --exit-code
 
-      - name: make test
-        run: make test
+      - name: mise run test
+        run: mise run test
