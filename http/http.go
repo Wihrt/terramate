@@ -112,7 +112,7 @@ func Delete[T Resource](ctx context.Context, client Client, url url.URL) error {
 	return err
 }
 
-// Request makes a request to the Terramate Cloud using client.
+// Request makes an HTTP request using client.
 // The instantiated type gets decoded and return as the entity T,
 // The payload is encoded accordingly to the rules below:
 // - If payload is nil, no body is sent and no Content-Type is set.

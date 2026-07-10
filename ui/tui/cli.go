@@ -558,7 +558,6 @@ func (c *CLI) setProjectAnalytics() {
 
 	r := tel.DefaultRecord
 	r.Set(
-		tel.OrgName(os.Getenv("TM_CLOUD_ORGANIZATION")),
 		tel.DetectFromEnv(cpsigfile, anasigfile, project.CIPlatform(), repo),
 		tel.StringFlag("chdir", c.state.wd),
 	)

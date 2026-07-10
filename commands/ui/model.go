@@ -27,11 +27,9 @@ import (
 // ViewState represents which view is currently active.
 type ViewState int
 
-// _removedCloudLogin and the following constants enumerate the possible view states.
+// ViewOverview and the following constants enumerate the possible view states.
 const (
-	_removedCloudLogin  ViewState = iota // Unused, kept to preserve iota values (was cloud login prompt)
-	ViewEnvSelect                        // Unused, kept to preserve iota values
-	ViewOverview                         // Main overview (now the initial view)
+	ViewOverview        ViewState = iota // Main overview (now the initial view)
 	ViewCreateSelect                     // Flat bundle selection (pre-inputs)
 	ViewCreateEnvSelect                  // Environment selection after bundle pick (Create only)
 	ViewCreateInput                      // Create-bundle wizard flow (inputs page)
