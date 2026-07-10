@@ -14,13 +14,8 @@ $(foreach dep,$(DEPS),\
 
 ## build a test binary -- not static, telemetry sent to localhost, etc
 .PHONY: test/build
-test/build: test/fakecloud
+test/build:
 	go build -tags localhostEndpoints -o bin/test-terramate.exe ./cmd/terramate
-
-## build bin/fakecloud
-.PHONY: test/fakecloud
-test/fakecloud:
-	go build -o bin/fakecloud.exe ./cloud/testserver/cmd/fakecloud
 
 ## build the helper binary
 .PHONY: test/helper
