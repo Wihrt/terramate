@@ -6,17 +6,9 @@ package run
 
 import (
 	"context"
-	"fmt"
 	"io"
-	"os"
-	"time"
 
-	"github.com/rs/zerolog"
-	"github.com/terramate-io/terramate/cloud"
-	"github.com/terramate-io/terramate/cloud/api/preview"
-	"github.com/terramate-io/terramate/cloud/api/resources"
 	"github.com/terramate-io/terramate/cloud/api/status"
-	"github.com/terramate-io/terramate/cloudsync"
 	"github.com/terramate-io/terramate/commands"
 	"github.com/terramate-io/terramate/config"
 	"github.com/terramate-io/terramate/engine"
@@ -34,8 +26,6 @@ const (
 	ErrCurrentHeadIsOutOfDate errors.Kind = "current HEAD is out-of-date with the remote base branch"
 	// ErrOutdatedGenCodeDetected indicates outdated generated code detected.
 	ErrOutdatedGenCodeDetected errors.Kind = "outdated generated code detected"
-
-	cloudSyncPreviewCICDWarning = "--sync-preview is only supported in GitHub Actions workflows, Gitlab CICD pipelines or Bitbucket Cloud Pipelines"
 )
 
 // Spec is the command specification for the run command.
@@ -50,31 +40,18 @@ type Spec struct {
 	Parallel        int
 	NoRecursive     bool
 
-	SyncDeployment    bool
-	SyncDriftStatus   bool
-	SyncPreview       bool
-	DebugPreviewURL   string
-	TechnologyLayer   preview.Layer
-	TerraformPlanFile string
-	PlanRenderTimeout time.Duration
-	TofuPlanFile      string
-	Terragrunt        bool
-	EnableSharing     bool
-	MockOnFail        bool
-	EvalCmd           bool
+	Terragrunt    bool
+	EnableSharing bool
+	MockOnFail    bool
+	EvalCmd       bool
 
-	GitFilter     engine.GitFilter
-	StatusFilters StatusFilters
-	Target        string
-	FromTarget    string
-	Tags          []string
-	NoTags        []string
+	GitFilter engine.GitFilter
+	Tags      []string
+	NoTags    []string
 
 	engine.DependencyFilters
 
 	Safeguards Safeguards
-
-	state cloudsync.CloudRunState
 
 	workingDir string
 	engine     *engine.Engine
@@ -85,6 +62,9 @@ type Spec struct {
 }
 
 // StatusFilters holds the status filters for the run command.
+//
+// TODO(task-6): commands/script/run/run.go still references this type; once
+// that package's cloud-sync logic is removed, delete this type too.
 type StatusFilters struct {
 	StackStatus      string
 	DeploymentStatus string
@@ -128,10 +108,6 @@ func (s *Spec) Exec(ctx context.Context, cli commands.CLI) error {
 	if err != nil {
 		return err
 	}
-	err = s.checkCloudSync()
-	if err != nil {
-		return err
-	}
 
 	cfg := s.engine.Config()
 	rootdir := cfg.HostDir()
@@ -147,16 +123,12 @@ func (s *Spec) Exec(ctx context.Context, cli commands.CLI) error {
 		}
 
 		stacks = append(stacks, st.Sortable())
-		stacks, err = s.engine.AddOutputDependencies(s.DependencyFilters, stacks, s.Target)
+		stacks, err = s.engine.AddOutputDependencies(s.DependencyFilters, stacks, "")
 		if err != nil {
 			return err
 		}
 	} else {
-		cloudFilters, err := status.ParseFilters(
-			s.StatusFilters.StackStatus,
-			s.StatusFilters.DeploymentStatus,
-			s.StatusFilters.DriftStatus,
-		)
+		noFilters, err := status.ParseFilters("", "", "")
 		if err != nil {
 			return err
 		}
@@ -164,7 +136,7 @@ func (s *Spec) Exec(ctx context.Context, cli commands.CLI) error {
 		if err != nil {
 			return err
 		}
-		stacks, err = s.engine.ComputeSelectedStacks(s.GitFilter, tags, s.DependencyFilters, s.Target, cloudFilters)
+		stacks, err = s.engine.ComputeSelectedStacks(s.GitFilter, tags, s.DependencyFilters, "", noFilters)
 		if err != nil {
 			return err
 		}
@@ -182,70 +154,6 @@ func (s *Spec) Exec(ctx context.Context, cli commands.CLI) error {
 		return err
 	}
 
-	if s.SyncDeployment && s.SyncDriftStatus {
-		return errors.E(ErrConflictOptions, "--sync-deployment conflicts with --sync-drift-status")
-	}
-
-	if s.SyncPreview && (s.SyncDeployment || s.SyncDriftStatus) {
-		return errors.E(ErrConflictOptions, "cannot use --sync-preview with --sync-deployment or --sync-drift-status")
-	}
-
-	if s.TerraformPlanFile != "" && s.TofuPlanFile != "" {
-		return errors.E(ErrConflictOptions, "--terraform-plan-file conflicts with --tofu-plan-file")
-	}
-
-	planFile, planProvisioner := SelectPlanFile(s.TerraformPlanFile, s.TofuPlanFile)
-
-	if planFile == "" && s.SyncPreview {
-		return errors.E(ErrConflictOptions, "--sync-preview requires --terraform-plan-file or -tofu-plan-file")
-	}
-
-	cloudSyncEnabled := s.SyncDeployment || s.SyncDriftStatus || s.SyncPreview
-
-	if s.TerraformPlanFile != "" && !cloudSyncEnabled {
-		return errors.E(ErrConflictOptions, "--terraform-plan-file requires flags --sync-deployment or --sync-drift-status or --sync-preview")
-	} else if s.TofuPlanFile != "" && !cloudSyncEnabled {
-		return errors.E(ErrConflictOptions, "--tofu-plan-file requires flags --sync-deployment or --sync-drift-status or --sync-preview")
-	}
-
-	err = s.engine.CheckTargetsConfiguration(s.Target, s.FromTarget, func(isTargetSet bool) error {
-		isStatusSet := s.StatusFilters.StackStatus != ""
-		isUsingCloudFeat := cloudSyncEnabled || isStatusSet
-
-		if isTargetSet && !isUsingCloudFeat {
-			return errors.E(ErrConflictOptions, "--target must be used together with --sync-deployment, --sync-drift-status, --sync-preview, or --status")
-		} else if !isTargetSet && isUsingCloudFeat {
-			return errors.E(ErrConflictOptions, "--sync-*/--status flags require --target when terramate.config.cloud.targets.enabled is true")
-		}
-		return nil
-	})
-
-	if err != nil {
-		return err
-	}
-
-	if s.FromTarget != "" && !cloudSyncEnabled {
-		return errors.E(ErrConflictOptions, "--from-target must be used together with --sync-deployment, --sync-drift-status, or --sync-preview")
-	}
-
-	if cloudSyncEnabled {
-		if !s.engine.Project().IsRepo() {
-			return errors.E("cloud features requires a git repository")
-		}
-		err = s.engine.EnsureAllStackHaveIDs(stacks)
-		if err != nil {
-			return err
-		}
-
-		cloudsync.DetectCloudMetadata(s.engine, &s.state)
-	}
-
-	isCICD := os.Getenv("GITHUB_ACTIONS") != "" || os.Getenv("GITLAB_CI") != "" || os.Getenv("BITBUCKET_BUILD_NUMBER") != ""
-	if s.SyncPreview && !isCICD {
-		printer.Stderr.Warn(cloudSyncPreviewCICDWarning)
-		s.engine.DisableCloudFeatures(errors.E(cloudSyncPreviewCICDWarning))
-	}
-
 	var runs []engine.StackRun
 	for _, st := range stacks {
 		run := engine.StackRun{
@@ -253,51 +161,20 @@ func (s *Spec) Exec(ctx context.Context, cli commands.CLI) error {
 			Stack:         st.Stack,
 			Tasks: []engine.StackRunTask{
 				{
-					Cmd:                    s.Command,
-					CloudTarget:            s.Target,
-					CloudFromTarget:        s.FromTarget,
-					CloudSyncDeployment:    s.SyncDeployment,
-					CloudSyncDriftStatus:   s.SyncDriftStatus,
-					CloudSyncPreview:       s.SyncPreview,
-					CloudPlanFile:          planFile,
-					CloudPlanProvisioner:   planProvisioner,
-					CloudPlanRenderTimeout: s.PlanRenderTimeout,
-					CloudSyncLayer:         s.TechnologyLayer,
-					UseTerragrunt:          s.Terragrunt,
-					EnableSharing:          s.EnableSharing,
-					MockOnFail:             s.MockOnFail,
+					Cmd:           s.Command,
+					UseTerragrunt: s.Terragrunt,
+					EnableSharing: s.EnableSharing,
+					MockOnFail:    s.MockOnFail,
 				},
 			},
 		}
 		if s.EvalCmd {
-			run.Tasks[0].Cmd, err = s.evalRunArgs(run.Stack, s.Target, run.Tasks[0].Cmd)
+			run.Tasks[0].Cmd, err = s.evalRunArgs(run.Stack, run.Tasks[0].Cmd)
 			if err != nil {
 				return errors.D("%s", "unable to evaluate command").WithError(err)
 			}
 		}
 		runs = append(runs, run)
-	}
-
-	if s.SyncDeployment {
-		// This will just select all runs, since the CloudSyncDeployment was set just above.
-		// Still, it's convenient to re-use this function here.
-		deployRuns := engine.SelectCloudStackTasks(runs, engine.IsDeploymentTask)
-		err := cloudsync.CreateCloudDeployment(s.engine, s.workingDir, deployRuns, &s.state)
-		if err != nil {
-			return err
-		}
-	}
-
-	if s.SyncPreview && s.cloudEnabled() {
-		// See comment above.
-		previewRuns := engine.SelectCloudStackTasks(runs, engine.IsPreviewTask)
-		for metaID, previewID := range cloudsync.CreateCloudPreview(s.engine, s.GitFilter, previewRuns, s.Target, s.FromTarget, &s.state) {
-			s.state.SetMeta2PreviewID(metaID, previewID)
-		}
-
-		if s.DebugPreviewURL != "" {
-			s.writePreviewURL()
-		}
 	}
 
 	err = s.engine.RunAll(runs, engine.RunAllOptions{
@@ -310,20 +187,6 @@ func (s *Spec) Exec(ctx context.Context, cli commands.CLI) error {
 		Stdout:          s.stdout,
 		Stderr:          s.stderr,
 		Stdin:           s.stdin,
-		Hooks: &engine.Hooks{
-			Before: func(e *engine.Engine, run engine.StackCloudRun) {
-				cloudsync.BeforeRun(e, run, &s.state)
-			},
-			After: func(e *engine.Engine, run engine.StackCloudRun, res engine.RunResult, err error) {
-				cloudsync.AfterRun(e, run, &s.state, res, err)
-			},
-			LogSyncCondition: func(task engine.StackRunTask, _ engine.StackRun) bool {
-				return task.CloudSyncDeployment || task.CloudSyncPreview || task.CloudSyncDriftStatus
-			},
-			LogSyncer: func(logger *zerolog.Logger, e *engine.Engine, run engine.StackRun, task engine.StackRunTask, logs resources.CommandLogs) {
-				cloudsync.Logs(logger, e, run, task, &s.state, logs)
-			},
-		},
 	})
 	if err != nil {
 		return errors.D("%s", "one or more commands failed").WithError(err)
@@ -331,22 +194,23 @@ func (s *Spec) Exec(ctx context.Context, cli commands.CLI) error {
 	return nil
 }
 
-func (s *Spec) cloudEnabled() bool { return s.engine.IsCloudEnabled() }
-
 // SelectPlanFile returns the plan file and provisioner to use based on the provided flags.
+//
+// TODO(task-6): commands/script/run/run.go still calls this; once that package's
+// cloud-sync logic is removed, delete this function too.
 func SelectPlanFile(terraformPlan, tofuPlan string) (planfile, provisioner string) {
 	if tofuPlan != "" {
 		planfile = tofuPlan
-		provisioner = cloudsync.ProvisionerOpenTofu
+		provisioner = "opentofu"
 	} else if terraformPlan != "" {
 		planfile = terraformPlan
-		provisioner = cloudsync.ProvisionerTerraform
+		provisioner = "terraform"
 	}
 	return
 }
 
-func (s *Spec) evalRunArgs(st *config.Stack, target string, cmd []string) ([]string, error) {
-	ctx, err := s.engine.SetupEvalContext(st.HostDir(s.engine.Config()), st, target, map[string]string{})
+func (s *Spec) evalRunArgs(st *config.Stack, cmd []string) ([]string, error) {
+	ctx, err := s.engine.SetupEvalContext(st.HostDir(s.engine.Config()), st, "", map[string]string{})
 	if err != nil {
 		return nil, err
 	}
@@ -368,47 +232,4 @@ func (s *Spec) evalRunArgs(st *config.Stack, target string, cmd []string) ([]str
 		newargs = append(newargs, val.AsString())
 	}
 	return newargs, nil
-}
-
-func (s *Spec) writePreviewURL() {
-	client := s.engine.CloudClient()
-	rrNumber := 0
-	if s.state.Metadata != nil && s.state.Metadata.GithubPullRequestNumber != 0 {
-		ctx, cancel := context.WithTimeout(context.Background(), cloud.DefaultTimeout)
-		defer cancel()
-		reviews, err := client.ListReviewRequests(ctx, s.engine.CloudState().Org.UUID)
-		if err != nil {
-			printer.Stderr.Warn(fmt.Sprintf("unable to list review requests: %v", err))
-			return
-		}
-		headCommit, err := s.engine.Project().HeadCommit()
-		if err != nil {
-			printer.Stderr.Warn(fmt.Sprintf("unable to get head commit: %v", err))
-			return
-		}
-		for _, review := range reviews {
-			if review.Number == s.state.Metadata.GithubPullRequestNumber &&
-				review.CommitSHA == headCommit {
-				rrNumber = int(review.ID)
-			}
-		}
-	}
-
-	cloudURL := cloud.HTMLURL(client.Region())
-	if client.BaseURL() == "https://api.stg.terramate.io" {
-		cloudURL = "https://cloud.stg.terramate.io"
-	}
-
-	var url = fmt.Sprintf("%s/o/%s/review-requests\n", cloudURL, s.engine.CloudState().Org.Name)
-	if rrNumber != 0 {
-		url = fmt.Sprintf("%s/o/%s/review-requests/%d\n",
-			cloudURL,
-			s.engine.CloudState().Org.Name,
-			rrNumber)
-	}
-
-	err := os.WriteFile(s.DebugPreviewURL, []byte(url), 0644)
-	if err != nil {
-		printer.Stderr.Warn(fmt.Sprintf("unable to write preview URL to file: %v", err))
-	}
 }
