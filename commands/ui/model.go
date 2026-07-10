@@ -5,9 +5,7 @@ package ui
 
 import (
 	"context"
-	"encoding/json"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -17,25 +15,23 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/zclconf/go-cty/cty"
 
-	"github.com/terramate-io/terramate"
 	"github.com/terramate-io/terramate/commands"
 	"github.com/terramate-io/terramate/config"
 	"github.com/terramate-io/terramate/errors"
 	"github.com/terramate-io/terramate/generate/resolve"
 	"github.com/terramate-io/terramate/hcl/eval"
 	"github.com/terramate-io/terramate/scaffold/manifest"
-	"github.com/terramate-io/terramate/ui/tui/cliauth"
 	"github.com/terramate-io/terramate/ui/tui/cliconfig"
 )
 
 // ViewState represents which view is currently active.
 type ViewState int
 
-// ViewCloudLogin and the following constants enumerate the possible view states.
+// _removedCloudLogin and the following constants enumerate the possible view states.
 const (
-	ViewCloudLogin      ViewState = iota // Cloud login prompt (shown first)
+	_removedCloudLogin  ViewState = iota // Unused, kept to preserve iota values (was cloud login prompt)
 	ViewEnvSelect                        // Unused, kept to preserve iota values
-	ViewOverview                         // Main overview
+	ViewOverview                         // Main overview (now the initial view)
 	ViewCreateSelect                     // Flat bundle selection (pre-inputs)
 	ViewCreateEnvSelect                  // Environment selection after bundle pick (Create only)
 	ViewCreateInput                      // Create-bundle wizard flow (inputs page)
@@ -124,12 +120,6 @@ type Model struct {
 
 	// View state
 	viewState ViewState
-
-	// Cloud login state
-
-	cloudLoginButtonIdx int
-	cloudLoginLoading   bool
-	cloudSignupMsg      string
 
 	// Environment selection state
 	selectedEnv *config.Environment
@@ -235,17 +225,9 @@ func (m Model) effectiveWidth() int {
 
 // NewModel creates a new prompt model.
 func NewModel(est *EngineState) Model {
-	var initialViewState ViewState
-
-	if _, err := os.Stat(cliauth.CredentialFile(est.CLIConfig)); err != nil && shouldAskForLogin(est.CLIConfig) {
-		initialViewState = ViewCloudLogin
-	} else {
-		initialViewState = ViewOverview
-	}
-
 	return Model{
 		EngineState: est,
-		viewState:   initialViewState,
+		viewState:   ViewOverview,
 		commands: []string{
 			"Scaffold",
 			"Reconfigure",
@@ -313,15 +295,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ctrlCPending = false
 		return m, nil
 
-	case cloudLoginResultMsg:
-		m.cloudLoginLoading = false
-		if msg.err != nil {
-			m.currentErr = msg.err
-			return m, nil
-		}
-		m.viewState = ViewOverview
-		return m, textarea.Blink
-
 	case tea.KeyMsg:
 		if key.Matches(msg, keys.Quit) {
 			// Clear error dialog so it doesn't block the second Ctrl+C
@@ -345,8 +318,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch m.viewState {
-		case ViewCloudLogin:
-			return m.updateCloudLogin(msg)
 		case ViewCreateSelect:
 			return m.updateCreateSelect(msg)
 		case ViewCreateEnvSelect:
@@ -381,8 +352,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m Model) View() string {
 	var base string
 	switch m.viewState {
-	case ViewCloudLogin:
-		base = m.renderCloudLoginView()
 	case ViewCreateSelect:
 		base = m.renderBundleSelectView()
 	case ViewCreateEnvSelect:
@@ -564,42 +533,4 @@ func IsBundleUnique(r *config.Registry, alias, classID, hostPath string, env *co
 	}
 
 	return nil
-}
-
-type loginSkipFileData struct {
-	Timestamp uint64 `json:"timestamp"`
-	Version   string `json:"version"`
-}
-
-func shouldAskForLogin(clicfg cliconfig.Config) bool {
-	loginSkipFile := filepath.Join(clicfg.UserTerramateDir, "login_skip")
-	data, err := os.ReadFile(loginSkipFile)
-	if err != nil {
-		return true
-	}
-	var skip loginSkipFileData
-	if err := json.Unmarshal(data, &skip); err != nil {
-		return true
-	}
-	if skip.Version != terramate.Version() {
-		return true
-	}
-	skippedAt := time.Unix(int64(skip.Timestamp), 0)
-	return time.Since(skippedAt) > 7*24*time.Hour
-}
-
-func setLoginSkipped(clicfg cliconfig.Config) error {
-	skip := loginSkipFileData{
-		Timestamp: uint64(time.Now().Unix()),
-		Version:   terramate.Version(),
-	}
-	data, err := json.Marshal(skip)
-	if err != nil {
-		return errors.E(err, "marshaling login skip data")
-	}
-	if err := os.MkdirAll(clicfg.UserTerramateDir, 0o700); err != nil {
-		return errors.E(err, "creating user terramate dir")
-	}
-	loginSkipFile := filepath.Join(clicfg.UserTerramateDir, "login_skip")
-	return os.WriteFile(loginSkipFile, data, 0o600)
 }
