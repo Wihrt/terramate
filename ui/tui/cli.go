@@ -559,7 +559,7 @@ func (c *CLI) setProjectAnalytics() {
 
 	r := tel.DefaultRecord
 	r.Set(
-		tel.OrgName(c.state.engine.CloudOrgName()),
+		tel.OrgName(os.Getenv("TM_CLOUD_ORGANIZATION")),
 		tel.DetectFromEnv(cliauth.CredentialFile(c.clicfg), cpsigfile, anasigfile, project.CIPlatform(), repo),
 		tel.StringFlag("chdir", c.state.wd),
 	)

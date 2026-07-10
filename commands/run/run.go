@@ -8,7 +8,6 @@ import (
 	"context"
 	"io"
 
-	"github.com/terramate-io/terramate/cloud/api/status"
 	"github.com/terramate-io/terramate/commands"
 	"github.com/terramate-io/terramate/config"
 	"github.com/terramate-io/terramate/engine"
@@ -118,15 +117,11 @@ func (s *Spec) Exec(ctx context.Context, cli commands.CLI) error {
 			return err
 		}
 	} else {
-		noFilters, err := status.ParseFilters("", "", "")
-		if err != nil {
-			return err
-		}
 		tags, err := engine.ParseFilterTags(s.Tags, s.NoTags)
 		if err != nil {
 			return err
 		}
-		stacks, err = s.engine.ComputeSelectedStacks(s.GitFilter, tags, s.DependencyFilters, "", noFilters)
+		stacks, err = s.engine.ComputeSelectedStacks(s.GitFilter, tags, s.DependencyFilters, "")
 		if err != nil {
 			return err
 		}
@@ -147,8 +142,7 @@ func (s *Spec) Exec(ctx context.Context, cli commands.CLI) error {
 	var runs []engine.StackRun
 	for _, st := range stacks {
 		run := engine.StackRun{
-			SyncTaskIndex: -1,
-			Stack:         st.Stack,
+			Stack: st.Stack,
 			Tasks: []engine.StackRunTask{
 				{
 					Cmd:           s.Command,

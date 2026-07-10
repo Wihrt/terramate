@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/fatih/color"
-	"github.com/terramate-io/terramate/cloud/api/status"
 	"github.com/terramate-io/terramate/commands"
 
 	runcmd "github.com/terramate-io/terramate/commands/run"
@@ -99,15 +98,11 @@ func (s *Spec) Exec(ctx context.Context, cli commands.CLI) error {
 			return err
 		}
 	} else {
-		noFilters, err := status.ParseFilters("", "", "")
-		if err != nil {
-			return err
-		}
 		tags, err := engine.ParseFilterTags(s.Tags, s.NoTags)
 		if err != nil {
 			return err
 		}
-		stacks, err = s.engine.ComputeSelectedStacks(s.GitFilter, tags, s.DependencyFilters, "", noFilters)
+		stacks, err = s.engine.ComputeSelectedStacks(s.GitFilter, tags, s.DependencyFilters, "")
 		if err != nil {
 			return err
 		}

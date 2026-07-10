@@ -17,8 +17,6 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/terramate-io/hcl/v2/hclsyntax"
-	"github.com/terramate-io/terramate/cloud/api/resources"
-	cloudstack "github.com/terramate-io/terramate/cloud/api/stack"
 	"github.com/terramate-io/terramate/commands"
 	"github.com/terramate-io/terramate/commands/script"
 	"github.com/terramate-io/terramate/config"
@@ -54,7 +52,7 @@ func (s *Spec) Exec(_ context.Context, cli commands.CLI) error {
 	s.printers = cli.Printers()
 
 	labels := s.Labels
-	entries, err := s.engine.ListStacks(s.GitFilter, cloudstack.AnyTarget, resources.NoStatusFilters(), false)
+	entries, err := s.engine.ListStacks(s.GitFilter, false)
 	if err != nil {
 		return err
 	}

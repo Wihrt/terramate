@@ -8,16 +8,12 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
 	"github.com/rs/zerolog/log"
 	hhcl "github.com/terramate-io/hcl/v2"
-	"github.com/terramate-io/terramate/cloud/api/resources"
-	cloudstack "github.com/terramate-io/terramate/cloud/api/stack"
 	"github.com/terramate-io/terramate/config"
 	"github.com/terramate-io/terramate/config/filter"
 	"github.com/terramate-io/terramate/config/tag"
@@ -32,20 +28,8 @@ import (
 	"github.com/terramate-io/terramate/stack"
 	"github.com/terramate-io/terramate/stdlib"
 	"github.com/terramate-io/terramate/ui/tui/cliconfig"
-	"github.com/terramate-io/terramate/ui/tui/clitest"
 	"github.com/zclconf/go-cty/cty"
 )
-
-const (
-	cloudFeatStatus          = "--status' is a Terramate Cloud feature to filter stacks that failed to deploy or have drifted."
-	cloudFeatSyncDeployment  = "'--sync-deployment' is a Terramate Cloud feature to synchronize deployment details to Terramate Cloud."
-	cloudFeatSyncDriftStatus = "'--sync-drift-status' is a Terramate Cloud feature to synchronize drift and health check results to Terramate Cloud."
-	cloudFeatSyncPreview     = "'--sync-preview' is a Terramate Cloud feature to synchronize deployment previews to Terramate Cloud."
-)
-
-const targetIDRegexPattern = "^[a-z0-9][-_a-z0-9]*[a-z0-9]$"
-
-var targetIDRegex = regexp.MustCompile(targetIDRegexPattern)
 
 const (
 	// HumanMode is the default normal mode when Terramate is executed at the user's machine.
@@ -92,8 +76,6 @@ type (
 	state struct {
 		affectedStacks config.List[stack.Entry]
 		repoChecks     stack.RepoChecks
-
-		cloud CloudState
 	}
 
 	// DependencyFilters holds the configuration for filtering stacks based on their dependencies
@@ -210,7 +192,7 @@ func (e *Engine) Project() *Project { return e.project }
 func (e *Engine) StackManager() *stack.Manager { return e.project.stackManager }
 
 // ListStacks returns the list of stacks based on filters.
-func (e *Engine) ListStacks(gitfilter GitFilter, target string, stackFilters resources.StatusFilters, checkRepo bool) (*stack.Report, error) {
+func (e *Engine) ListStacks(gitfilter GitFilter, checkRepo bool) (*stack.Report, error) {
 	var report *stack.Report
 
 	err := e.setupGit(gitfilter)
@@ -236,54 +218,13 @@ func (e *Engine) ListStacks(gitfilter GitFilter, target string, stackFilters res
 	// memoize the list of affected stacks so they can be retrieved later
 	// without computing the list again
 	e.state.affectedStacks = report.Stacks
-
-	if stackFilters.HasFilter() {
-		if !e.project.isRepo {
-			return nil, errors.E("cloud filters requires a git repository")
-		}
-		err := e.SetupCloudConfig([]string{cloudFeatStatus})
-		if err != nil {
-			return nil, err
-		}
-
-		repository, err := e.project.Repo()
-		if err != nil {
-			return nil, err
-		}
-		if repository.Host == "local" {
-			return nil, errors.E("status filters does not work with filesystem based remotes")
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), defaultCloudTimeout)
-		defer cancel()
-		cloudStacks, err := e.state.cloud.client.StacksByStatus(ctx, e.state.cloud.Org.UUID, repository.Repo, target, stackFilters)
-		if err != nil {
-			return nil, err
-		}
-
-		cloudStacksMap := map[string]bool{}
-		for _, stack := range cloudStacks {
-			cloudStacksMap[stack.MetaID] = true
-		}
-
-		localStacks := report.Stacks
-		var stacks []stack.Entry
-
-		for _, stack := range localStacks {
-			if cloudStacksMap[strings.ToLower(stack.Stack.ID)] {
-				stacks = append(stacks, stack)
-			}
-		}
-		report.Stacks = stacks
-	}
-
 	e.state.repoChecks = report.Checks
 	return report, nil
 }
 
 // ComputeSelectedStacks computes stacks based on filters, working directory, tags, filesystem ordering, git changes, etc.
-func (e *Engine) ComputeSelectedStacks(gitfilter GitFilter, tags filter.TagClause, dependencyFilters DependencyFilters, target string, stackFilters resources.StatusFilters) (config.List[*config.SortableStack], error) {
-	report, err := e.ListStacks(gitfilter, target, stackFilters, true)
+func (e *Engine) ComputeSelectedStacks(gitfilter GitFilter, tags filter.TagClause, dependencyFilters DependencyFilters, target string) (config.List[*config.SortableStack], error) {
+	report, err := e.ListStacks(gitfilter, true)
 	if err != nil {
 		return nil, err
 	}
@@ -857,97 +798,6 @@ func ParseFilterTags(tags, notags []string) (filter.TagClause, error) {
 	return parsed, nil
 }
 
-// CheckTargetsConfiguration checks the target configuration of the project.
-func (e *Engine) CheckTargetsConfiguration(targetArg, fromTargetArg string, cloudCheckFn func(bool) error) error {
-	isTargetSet := targetArg != ""
-	isFromTargetSet := fromTargetArg != ""
-	isTargetsEnabled := e.Config().HasExperiment("targets") && e.Config().IsTargetsEnabled()
-
-	if isTargetSet {
-		if !isTargetsEnabled {
-			printer.Stderr.Error(`The "targets" feature is not enabled`)
-			printer.Stderr.Println(`In order to enable it you must set the terramate.config.experiments attribute and set terramate.config.cloud.targets.enabled to true.`)
-			printer.Stderr.Println(`Example:
-	
-terramate {
-  config {
-    experiments = ["targets"]
-    cloud {
-      targets {
-        enabled = true
-      }
-    }
-  }
-}`)
-			os.Exit(1)
-		}
-
-		// Here we should check if any cloud parameter is enabled for target to make sense.
-		// The error messages should be different per caller.
-		err := cloudCheckFn(true)
-		if err != nil {
-			return err
-		}
-
-	} else {
-		if isTargetsEnabled {
-			// Here we should check if any cloud parameter is enabled that would require target.
-			// The error messages should be different per caller.
-			err := cloudCheckFn(false)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	if isFromTargetSet && !isTargetSet {
-		return errors.E("--from-target requires --target")
-	}
-
-	if isTargetSet && !targetIDRegex.MatchString(targetArg) {
-		return errors.E("--target value has invalid format, it must match %q", targetIDRegexPattern)
-	}
-
-	if isFromTargetSet && !targetIDRegex.MatchString(fromTargetArg) {
-		return errors.E("--from-target value has invalid format, it must match %q", targetIDRegexPattern)
-	}
-
-	return nil
-}
-
-// EnsureAllStackHaveIDs ensures all stacks have IDs.
-func (e *Engine) EnsureAllStackHaveIDs(stacks config.List[*config.SortableStack]) error {
-	logger := log.With().
-		Str("action", "engine.ensureAllStackHaveIDs").
-		Logger()
-
-	var stacksMissingIDs []string
-	for _, st := range stacks {
-		if st.ID == "" {
-			stacksMissingIDs = append(stacksMissingIDs, st.Dir().String())
-		}
-	}
-	if len(stacksMissingIDs) > 0 {
-		for _, stackPath := range stacksMissingIDs {
-			logger.Error().Str("stack", stackPath).Msg("stack is missing the ID field")
-		}
-		logger.Warn().Msg("Stacks are missing IDs. You can use 'terramate create --ensure-stack-ids' to add missing IDs to all stacks.")
-		return e.handleCriticalError(errors.E(clitest.ErrCloudStacksWithoutID))
-	}
-	return nil
-}
-
-func (e *Engine) handleCriticalError(err error) error {
-	if err != nil {
-		if e.uimode == HumanMode {
-			return err
-		}
-
-		e.DisableCloudFeatures(err)
-	}
-	return nil
-}
-
 func checkChangeDetectionFlagConflicts(enable []string, disable []string) error {
 	for _, enableOpt := range enable {
 		if slices.Contains(disable, enableOpt) {
@@ -994,7 +844,7 @@ func (e *Engine) GetAffectedStacks(gitfilter GitFilter) ([]stack.Entry, error) {
 	if e.state.affectedStacks != nil {
 		return e.state.affectedStacks, nil
 	}
-	report, err := e.ListStacks(gitfilter, cloudstack.AnyTarget, resources.NoStatusFilters(), false)
+	report, err := e.ListStacks(gitfilter, false)
 	if err != nil {
 		return nil, err
 	}
