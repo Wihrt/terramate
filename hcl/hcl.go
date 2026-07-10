@@ -16,7 +16,6 @@ import (
 	"github.com/terramate-io/hcl/v2"
 	"github.com/terramate-io/hcl/v2/hclparse"
 	"github.com/terramate-io/hcl/v2/hclsyntax"
-	"github.com/terramate-io/terramate/cloud"
 	"github.com/terramate-io/terramate/errors"
 	"github.com/terramate-io/terramate/fs"
 	"github.com/terramate-io/terramate/hcl/ast"
@@ -258,21 +257,6 @@ type GenerateRootConfig struct {
 	HCLMagicHeaderCommentStyle *string
 }
 
-// CloudConfig represents Terramate cloud configuration.
-type CloudConfig struct {
-	// Organization is the name of the cloud organization
-	Organization string
-
-	Targets *TargetsConfig
-
-	Location cloud.Region
-}
-
-// TargetsConfig represents Terramate targets configuration.
-type TargetsConfig struct {
-	Enabled bool
-}
-
 // TelemetryConfig represents Terramate telemetry configuration.
 type TelemetryConfig struct {
 	Enabled *bool
@@ -284,7 +268,6 @@ type RootConfig struct {
 	Generate          *GenerateRootConfig
 	ChangeDetection   *ChangeDetectionConfig
 	Run               *RunConfig
-	Cloud             *CloudConfig
 	Experiments       []string
 	DisableSafeguards safeguard.Keywords
 	Telemetry         *TelemetryConfig
@@ -1535,7 +1518,7 @@ func (p *TerramateParser) parseRootConfig(cfg *RootConfig, block *ast.MergedBloc
 		}
 	}
 
-	errs.AppendWrap(ErrTerramateSchema, block.ValidateSubBlocks("git", "generate", "change_detection", "run", "cloud", "targets", "telemetry"))
+	errs.AppendWrap(ErrTerramateSchema, block.ValidateSubBlocks("git", "generate", "change_detection", "run", "telemetry"))
 
 	gitBlock, ok := block.Blocks[ast.NewEmptyLabelBlockType("git")]
 	if ok {
@@ -1545,13 +1528,6 @@ func (p *TerramateParser) parseRootConfig(cfg *RootConfig, block *ast.MergedBloc
 	runBlock, ok := block.Blocks[ast.NewEmptyLabelBlockType("run")]
 	if ok {
 		errs.Append(parseRunConfig(cfg, runBlock))
-	}
-
-	cloudBlock, ok := block.Blocks[ast.NewEmptyLabelBlockType("cloud")]
-	if ok {
-		cfg.Cloud = &CloudConfig{}
-
-		errs.Append(parseCloudConfig(cfg.Cloud, cloudBlock))
 	}
 
 	generateBlock, ok := block.Blocks[ast.NewEmptyLabelBlockType("generate")]
@@ -1953,113 +1929,6 @@ func checkSafeguardConfigConflict(cfg *RootConfig, attr ast.Attribute) error {
 		)
 	}
 	return nil
-}
-
-func parseCloudConfig(cloudcfg *CloudConfig, cloudBlock *ast.MergedBlock) error {
-	errs := errors.L()
-
-	for _, attr := range cloudBlock.Attributes.SortedList() {
-		value, diags := attr.Expr.Value(nil)
-		if diags.HasErrors() {
-			errs.Append(errors.E(diags,
-				"failed to evaluate terramate.config.cloud.%s attribute", attr.Name,
-			))
-			continue
-		}
-
-		switch attr.Name {
-		case "organization":
-			if value.Type() != cty.String {
-				errs.Append(attrErr(attr,
-					"terramate.config.cloud.organization is not a string but %q",
-					value.Type().FriendlyName(),
-				))
-
-				continue
-			}
-
-			cloudcfg.Organization = value.AsString()
-
-		case "location":
-			if value.Type() != cty.String {
-				errs.Append(attrErr(attr,
-					"terramate.config.cloud.location is not a string but %q",
-					value.Type().FriendlyName(),
-				))
-
-				continue
-			}
-
-			location, err := cloud.ParseRegion(value.AsString())
-			if err != nil {
-				errs.Append(attrErr(attr,
-					"terramate.config.cloud.location is not a valid region (%s) but %q",
-					cloud.AvailableRegions(),
-					value.AsString(),
-				))
-
-				continue
-			}
-
-			cloudcfg.Location = location
-
-		default:
-			errs.Append(errors.E(
-				attr.NameRange,
-				"unrecognized attribute terramate.config.cloud.%s",
-				attr.Name,
-			))
-		}
-	}
-
-	errs.AppendWrap(ErrTerramateSchema, cloudBlock.ValidateSubBlocks("targets"))
-
-	targetsBlock, ok := cloudBlock.Blocks[ast.NewEmptyLabelBlockType("targets")]
-	if ok {
-		cloudcfg.Targets = &TargetsConfig{}
-
-		errs.Append(parseTargetsConfig(cloudcfg.Targets, targetsBlock))
-	}
-
-	return errs.AsError()
-}
-
-func parseTargetsConfig(targets *TargetsConfig, targetsBlock *ast.MergedBlock) error {
-	errs := errors.L()
-
-	errs.AppendWrap(ErrTerramateSchema, targetsBlock.ValidateSubBlocks())
-
-	for _, attr := range targetsBlock.Attributes.SortedList() {
-		value, diags := attr.Expr.Value(nil)
-		if diags.HasErrors() {
-			errs.Append(errors.E(diags,
-				"failed to evaluate terramate.config.cloud.targets.%s attribute", attr.Name,
-			))
-			continue
-		}
-
-		switch attr.Name {
-		case "enabled":
-			if value.Type() != cty.Bool {
-				errs.Append(attrErr(attr,
-					"terramate.config.cloud.targets.enabled is not a boolean but %q",
-					value.Type().FriendlyName(),
-				))
-
-				continue
-			}
-
-			targets.Enabled = value.True()
-
-		default:
-			errs.Append(errors.E(
-				attr.NameRange,
-				"unrecognized attribute terramate.config.cloud.targets.%s",
-				attr.Name,
-			))
-		}
-	}
-	return errs.AsError()
 }
 
 func (p *TerramateParser) parseTerramateSchema() (*Config, error) {

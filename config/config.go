@@ -847,13 +847,11 @@ func (root *Root) IsTerragruntChangeDetectionEnabled() (ret bool) {
 }
 
 // IsTargetsEnabled returns the configured `terramate.config.cloud.targets.enabled` option.
+//
+// Deprecated: cloud configuration has been removed; this always returns false.
+// Kept temporarily so engine.CheckTargetsConfiguration (Task 8) still compiles;
+// Task 8 removes this method along with its only call site.
 func (root *Root) IsTargetsEnabled() bool {
-	if root.tree.Node.Terramate != nil &&
-		root.tree.Node.Terramate.Config != nil &&
-		root.tree.Node.Terramate.Config.Cloud != nil &&
-		root.tree.Node.Terramate.Config.Cloud.Targets != nil {
-		return root.tree.Node.Terramate.Config.Cloud.Targets.Enabled
-	}
 	return false
 }
 

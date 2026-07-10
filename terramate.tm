@@ -16,15 +16,6 @@ terramate {
       check_uncommitted = false
       check_remote      = false
     }
-
-    cloud {
-      location     = "eu"
-      organization = "terramate-tests"
-
-      targets {
-        enabled = true
-      }
-    }
   }
 }
 

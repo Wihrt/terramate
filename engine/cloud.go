@@ -257,21 +257,11 @@ func (e *Engine) CloudOrgName() string {
 	if orgName != "" {
 		return orgName
 	}
-	cfg := e.RootNode()
-	if cfg.Terramate != nil &&
-		cfg.Terramate.Config != nil &&
-		cfg.Terramate.Config.Cloud != nil {
-		return cfg.Terramate.Config.Cloud.Organization
-	}
 	return ""
 }
 
 // CloudRegion returns the cloud region from configuration, defaulting to EU.
 func (e *Engine) CloudRegion() cloud.Region {
-	rootcfg := e.RootNode()
-	if rootcfg.Terramate != nil && rootcfg.Terramate.Config != nil && rootcfg.Terramate.Config.Cloud != nil {
-		return rootcfg.Terramate.Config.Cloud.Location
-	}
 	return cloud.EU
 }
 
