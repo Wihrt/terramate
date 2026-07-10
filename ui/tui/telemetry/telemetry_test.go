@@ -32,31 +32,9 @@ func TestDetectAuthTypeFromEnv(t *testing.T) {
 					t.Setenv(k2, "")
 				}
 			}
-			assert.EqualInts(t, int(want), int(DetectAuthTypeFromEnv("")))
+			assert.EqualInts(t, int(want), int(DetectAuthTypeFromEnv()))
 		})
 	}
-
-	t.Run("Google", func(t *testing.T) {
-		s := sandbox.New(t)
-		s.BuildTree([]string{
-			`f:userdir/credentials.tmrc.json:{"provider": "Google"}`,
-		})
-		for k := range tests {
-			t.Setenv(k, "")
-		}
-		assert.EqualInts(t, int(AuthIDPGoogle), int(DetectAuthTypeFromEnv(filepath.Join(s.RootDir(), "userdir/credentials.tmrc.json"))))
-	})
-
-	t.Run("GitHub", func(t *testing.T) {
-		s := sandbox.New(t)
-		s.BuildTree([]string{
-			`f:userdir/credentials.tmrc.json:{"provider": "GitHub"}`,
-		})
-		for k := range tests {
-			t.Setenv(k, "")
-		}
-		assert.EqualInts(t, int(AuthIDPGithub), int(DetectAuthTypeFromEnv(filepath.Join(s.RootDir(), "userdir/credentials.tmrc.json"))))
-	})
 }
 
 func TestGenerateOrReadSignature(t *testing.T) {

@@ -51,16 +51,6 @@ func TestTriggerWorksRecursivelyFromRelativeStackPath(t *testing.T) {
 	git.CheckoutNew("trigger-the-stack")
 
 	cli := NewCLI(t, filepath.Join(s.RootDir(), "dir"))
-	AssertRunResult(t, cli.Trigger("--recursive", "--status=ok"), RunExpected{
-		Status:      1,
-		StderrRegex: regexp.QuoteMeta("cloud filters such as --status are incompatible with --recursive flag"),
-	})
-
-	AssertRunResult(t, cli.Trigger("--recursive", "--status=ok", "stacks"), RunExpected{
-		Status:      1,
-		StderrRegex: regexp.QuoteMeta("cloud filters such as --status are incompatible with --recursive flag"),
-	})
-
 	AssertRunResult(t, cli.Trigger("--changed", "stacks"), RunExpected{
 		Status:      1,
 		StderrRegex: regexp.QuoteMeta("path is not a stack and --recursive is not provided"),

@@ -76,7 +76,7 @@ func AuthUser(authUser string) MessageOpt {
 }
 
 // DetectFromEnv detects platform, platform_user, auth type, signature, architecture and OS from the environment.
-func DetectFromEnv(credfile, cpsigfile, anasigfile string, plat ci.PlatformType, repo *git.Repository) MessageOpt {
+func DetectFromEnv(cpsigfile, anasigfile string, plat ci.PlatformType, repo *git.Repository) MessageOpt {
 	return func(msg *Message) {
 		msg.Platform = plat
 
@@ -89,7 +89,7 @@ func DetectFromEnv(credfile, cpsigfile, anasigfile string, plat ci.PlatformType,
 			}
 		}
 
-		msg.Auth = DetectAuthTypeFromEnv(credfile)
+		msg.Auth = DetectAuthTypeFromEnv()
 		msg.Signature, _ = GenerateOrReadSignature(cpsigfile, anasigfile)
 
 		msg.Arch = runtime.GOARCH
