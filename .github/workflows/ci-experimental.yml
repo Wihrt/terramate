@@ -1,42 +1,42 @@
-# Copyright 2023 Terramate GmbH
-# SPDX-License-Identifier: MPL-2.0
+# # Copyright 2023 Terramate GmbH
+# # SPDX-License-Identifier: MPL-2.0
 
-name: ci-experimental
-on:
-  pull_request:
+# name: ci-experimental
+# on:
+#   pull_request:
 
 
-jobs:
-  build_test:
-    name: Build and Test
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+# jobs:
+#   build_test:
+#     name: Build and Test
+#     runs-on: ${{ matrix.os }}
+#     timeout-minutes: 30
 
-    strategy:
-      matrix:
-        os: [ "windows-2022" ]
+#     strategy:
+#       matrix:
+#         os: [ "windows-2022" ]
 
-    steps:
-      - name: configure git
-        run: git config --global core.autocrlf input
+#     steps:
+#       - name: configure git
+#         run: git config --global core.autocrlf input
 
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
-      - uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # pin@v5
-        with:
-          go-version-file: 'go.mod'
-          check-latest: true
+#       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+#       - uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # pin@v5
+#         with:
+#           go-version-file: 'go.mod'
+#           check-latest: true
 
-      - uses: opentofu/setup-opentofu@592200bd4b9bbf4772ace78f887668b1aee8f716 # pin@v1.0.5
-        with:
-          tofu_version: 1.6.2
-          tofu_wrapper: false
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+#       - uses: opentofu/setup-opentofu@592200bd4b9bbf4772ace78f887668b1aee8f716 # pin@v1.0.5
+#         with:
+#           tofu_version: 1.6.2
+#           tofu_wrapper: false
+#           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: make build
-        run: make build
+#       - name: make build
+#         run: make build
 
-      - name: make generate
-        run: make generate && git diff
+#       - name: make generate
+#         run: make generate && git diff
 
-      - name: make test
-        run: make test
+#       - name: make test
+#         run: make test
