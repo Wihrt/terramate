@@ -1,0 +1,66 @@
+# Copyright 2026 Terramate GmbH
+# SPDX-License-Identifier: MPL-2.0
+
+[tools]
+go = "1.25.8"
+golangci-lint = "2.6.1"
+goreleaser = "2.17.0"
+node = "22"
+pre-commit = "4.6.0"
+"go:github.com/google/addlicense" = "1.0.0"
+
+[tasks.build]
+description = "Build terramate + terramate-ls"
+depends = ["build:terramate", "build:terramate-ls"]
+
+[tasks."build:terramate"]
+description = "Build the terramate binary"
+env = { CGO_ENABLED = "0" }
+run = "go build --ldflags '-extldflags \"-static\"' -o bin/terramate ./cmd/terramate"
+
+[tasks."build:terramate-ls"]
+description = "Build the terramate-ls binary"
+env = { CGO_ENABLED = "0" }
+run = "go build --ldflags '-extldflags \"-static\"' -o bin/terramate-ls ./cmd/terramate-ls"
+
+[tasks."build:pprof"]
+description = "Build terramate with profiler"
+depends = ["build:pprof:terramate"]
+
+[tasks."build:pprof:terramate"]
+description = "Build the terramate binary with profiler"
+env = { CGO_ENABLED = "0" }
+run = "go build --ldflags '-extldflags \"-static\"' -tags profiler -o bin/terramate ./cmd/terramate"
+
+[tasks."build:tgdeps"]
+description = "Build tgdeps"
+env = { CGO_ENABLED = "0" }
+run = "go build --ldflags '-extldflags \"-static\"' -o bin/tgdeps ./cmd/tgdeps"
+
+[tasks.install]
+description = "Install terramate + terramate-ls on the host"
+depends = ["install:terramate", "install:terramate-ls"]
+
+[tasks."install:terramate"]
+description = "Install the terramate binary"
+env = { CGO_ENABLED = "0" }
+run = "go install --ldflags '-extldflags \"-static\"' ./cmd/terramate"
+
+[tasks."install:terramate-ls"]
+description = "Install the terramate-ls binary"
+env = { CGO_ENABLED = "0" }
+run = "go install --ldflags '-extldflags \"-static\"' ./cmd/terramate-ls"
+
+[tasks."install:pprof"]
+description = "Install terramate with profiler"
+depends = ["install:pprof:terramate"]
+
+[tasks."install:pprof:terramate"]
+description = "Install the terramate binary with profiler"
+env = { CGO_ENABLED = "0" }
+run = "go install --ldflags '-extldflags \"-static\"' -tags profiler ./cmd/terramate"
+
+[tasks."install:tgdeps"]
+description = "Install tgdeps"
+env = { CGO_ENABLED = "0" }
+run = "go install --ldflags '-extldflags \"-static\"' ./cmd/tgdeps"
