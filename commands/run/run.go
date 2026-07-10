@@ -61,16 +61,6 @@ type Spec struct {
 	stdin      io.Reader
 }
 
-// StatusFilters holds the status filters for the run command.
-//
-// TODO(task-6): commands/script/run/run.go still references this type; once
-// that package's cloud-sync logic is removed, delete this type too.
-type StatusFilters struct {
-	StackStatus      string
-	DeploymentStatus string
-	DriftStatus      string
-}
-
 // Safeguards holds the safeguard options for the run command.
 type Safeguards struct {
 	DisableCheckGitUntracked          bool
@@ -192,21 +182,6 @@ func (s *Spec) Exec(ctx context.Context, cli commands.CLI) error {
 		return errors.D("%s", "one or more commands failed").WithError(err)
 	}
 	return nil
-}
-
-// SelectPlanFile returns the plan file and provisioner to use based on the provided flags.
-//
-// TODO(task-6): commands/script/run/run.go still calls this; once that package's
-// cloud-sync logic is removed, delete this function too.
-func SelectPlanFile(terraformPlan, tofuPlan string) (planfile, provisioner string) {
-	if tofuPlan != "" {
-		planfile = tofuPlan
-		provisioner = "opentofu"
-	} else if terraformPlan != "" {
-		planfile = terraformPlan
-		provisioner = "terraform"
-	}
-	return
 }
 
 func (s *Spec) evalRunArgs(st *config.Stack, cmd []string) ([]string, error) {

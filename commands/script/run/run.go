@@ -12,11 +12,7 @@ import (
 	"strings"
 
 	"github.com/fatih/color"
-	"github.com/hashicorp/go-uuid"
-	"github.com/rs/zerolog"
-	"github.com/terramate-io/terramate/cloud/api/resources"
 	"github.com/terramate-io/terramate/cloud/api/status"
-	"github.com/terramate-io/terramate/cloudsync"
 	"github.com/terramate-io/terramate/commands"
 
 	runcmd "github.com/terramate-io/terramate/commands/run"
@@ -34,14 +30,6 @@ import (
 	tel "github.com/terramate-io/terramate/ui/tui/telemetry"
 )
 
-const (
-	cloudFeatScriptSyncDeployment  = "Script option 'sync_deployment' is a Terramate Cloud feature to synchronize deployment details to Terramate Cloud."
-	cloudFeatScriptSyncDriftStatus = "Script option 'sync_drift_status' is a Terramate Cloud feature to synchronize drift and health check results to Terramate Cloud."
-	cloudFeatScriptSyncPreview     = "Script option 'sync_preview' is a Terramate Cloud feature to synchronize deployment previews to Terramate Cloud."
-)
-
-const cloudSyncPreviewCICDWarning = "--sync-preview is only supported in GitHub Actions workflows, Gitlab CICD pipelines or Bitbucket Cloud Pipelines"
-
 // Spec represents the script run specification.
 type Spec struct {
 	Safeguards      runcmd.Safeguards
@@ -51,17 +39,12 @@ type Spec struct {
 	Parallel        int
 	ContinueOnError bool
 	GitFilter       engine.GitFilter
-	Target          string
-	FromTarget      string
 	NoRecursive     bool
 	NoTags          []string
 	Tags            []string
 	engine.DependencyFilters
-	StatusFilters runcmd.StatusFilters
 
 	Labels []string
-
-	state cloudsync.CloudRunState
 
 	workingDir string
 	engine     *engine.Engine
@@ -97,19 +80,6 @@ func (s *Spec) Exec(ctx context.Context, cli commands.CLI) error {
 		return err
 	}
 
-	err = s.engine.CheckTargetsConfiguration(s.Target, s.FromTarget, func(isTargetSet bool) error {
-		if !isTargetSet {
-			// We don't check here if any script has any sync command options enabled.
-			// We assume yes and so --target must be set.
-			return errors.E("--target is required when terramate.config.cloud.targets.enabled is true")
-		}
-		return nil
-	})
-
-	if err != nil {
-		return err
-	}
-
 	root := s.engine.Config()
 
 	var stacks config.List[*config.SortableStack]
@@ -124,16 +94,12 @@ func (s *Spec) Exec(ctx context.Context, cli commands.CLI) error {
 		}
 
 		stacks = append(stacks, st.Sortable())
-		stacks, err = s.engine.AddOutputDependencies(s.DependencyFilters, stacks, s.Target)
+		stacks, err = s.engine.AddOutputDependencies(s.DependencyFilters, stacks, "")
 		if err != nil {
 			return err
 		}
 	} else {
-		cloudFilters, err := status.ParseFilters(
-			s.StatusFilters.StackStatus,
-			s.StatusFilters.DeploymentStatus,
-			s.StatusFilters.DriftStatus,
-		)
+		noFilters, err := status.ParseFilters("", "", "")
 		if err != nil {
 			return err
 		}
@@ -141,7 +107,7 @@ func (s *Spec) Exec(ctx context.Context, cli commands.CLI) error {
 		if err != nil {
 			return err
 		}
-		stacks, err = s.engine.ComputeSelectedStacks(s.GitFilter, tags, s.DependencyFilters, s.Target, cloudFilters)
+		stacks, err = s.engine.ComputeSelectedStacks(s.GitFilter, tags, s.DependencyFilters, "", noFilters)
 		if err != nil {
 			return err
 		}
@@ -189,7 +155,7 @@ func (s *Spec) Exec(ctx context.Context, cli commands.CLI) error {
 		for _, st := range result.Stacks {
 			run := engine.StackRun{Stack: st.Stack}
 
-			ectx, err := scriptEvalContext(root, st.Stack, s.Target)
+			ectx, err := scriptEvalContext(root, st.Stack, "")
 			if err != nil {
 				return errors.E(err, "failed to get context")
 			}
@@ -202,56 +168,29 @@ func (s *Spec) Exec(ctx context.Context, cli commands.CLI) error {
 			for jobIdx, job := range evalScript.Jobs {
 				for cmdIdx, cmd := range job.Commands() {
 					task := engine.StackRunTask{
-						Cmd:             cmd.Args,
-						CloudTarget:     s.Target,
-						CloudFromTarget: s.FromTarget,
-						ScriptIdx:       scriptIdx,
-						ScriptJobIdx:    jobIdx,
-						ScriptCmdIdx:    cmdIdx,
+						Cmd:          cmd.Args,
+						ScriptIdx:    scriptIdx,
+						ScriptJobIdx: jobIdx,
+						ScriptCmdIdx: cmdIdx,
 					}
 
 					if cmd.Options != nil {
-						planFile, planProvisioner := runcmd.SelectPlanFile(
-							cmd.Options.CloudTerraformPlanFile,
-							cmd.Options.CloudTofuPlanFile)
-
-						task.CloudSyncDeployment = cmd.Options.CloudSyncDeployment
-						task.CloudSyncDriftStatus = cmd.Options.CloudSyncDriftStatus
-						task.CloudSyncPreview = cmd.Options.CloudSyncPreview
-						task.CloudSyncLayer = cmd.Options.CloudSyncLayer
-						task.CloudPlanFile = planFile
-						task.CloudPlanProvisioner = planProvisioner
-						task.CloudPlanRenderTimeout = cmd.Options.CloudPlanRenderTimeout
 						task.UseTerragrunt = cmd.Options.UseTerragrunt
 						task.EnableSharing = cmd.Options.EnableSharing
 						task.MockOnFail = cmd.Options.MockOnFail
 
 						tel.DefaultRecord.Set(
-							tel.BoolFlag("sync-deployment", cmd.Options.CloudSyncDeployment),
-							tel.BoolFlag("sync-drift", cmd.Options.CloudSyncDriftStatus),
-							tel.BoolFlag("sync-preview", cmd.Options.CloudSyncPreview),
-							tel.StringFlag("terraform-planfile", cmd.Options.CloudTerraformPlanFile),
-							tel.StringFlag("tofu-planfile", cmd.Options.CloudTofuPlanFile),
-							tel.StringFlag("layer", string(cmd.Options.CloudSyncLayer)),
 							tel.BoolFlag("terragrunt", cmd.Options.UseTerragrunt),
 							tel.BoolFlag("output-sharing", cmd.Options.EnableSharing),
 							tel.BoolFlag("output-mocks", cmd.Options.MockOnFail),
 						)
 					}
 					run.Tasks = append(run.Tasks, task)
-					if task.CloudSyncDeployment || task.CloudSyncDriftStatus || task.CloudSyncPreview {
-						run.SyncTaskIndex = len(run.Tasks) - 1
-					}
 				}
 			}
 
 			runs = append(runs, run)
 		}
-	}
-
-	err = s.prepareScriptForCloudSync(runs)
-	if err != nil {
-		return err
 	}
 
 	err = s.engine.RunAll(runs, engine.RunAllOptions{
@@ -264,128 +203,9 @@ func (s *Spec) Exec(ctx context.Context, cli commands.CLI) error {
 		Stdout:          s.stdout,
 		Stderr:          s.stderr,
 		Stdin:           s.stdin,
-		Hooks: &engine.Hooks{
-			Before: func(e *engine.Engine, run engine.StackCloudRun) {
-				cloudsync.BeforeRun(e, run, &s.state)
-			},
-			After: func(e *engine.Engine, run engine.StackCloudRun, res engine.RunResult, err error) {
-				cloudsync.AfterRun(e, run, &s.state, res, err)
-			},
-			LogSyncCondition: func(task engine.StackRunTask, _ engine.StackRun) bool {
-				return task.CloudSyncDeployment || task.CloudSyncPreview || task.CloudSyncDriftStatus
-			},
-			LogSyncer: func(logger *zerolog.Logger, e *engine.Engine, run engine.StackRun, task engine.StackRunTask, logs resources.CommandLogs) {
-				cloudsync.Logs(logger, e, run, task, &s.state, logs)
-			},
-		},
 	})
 	if err != nil {
 		return errors.D("%s", "one or more commands failed").WithError(err)
-	}
-	return nil
-}
-
-func (s *Spec) prepareScriptForCloudSync(runs []engine.StackRun) error {
-	if s.DryRun {
-		return nil
-	}
-
-	deployRuns := engine.SelectCloudStackTasks(runs, engine.IsDeploymentTask)
-	driftRuns := engine.SelectCloudStackTasks(runs, engine.IsDriftTask)
-	previewRuns := engine.SelectCloudStackTasks(runs, engine.IsPreviewTask)
-	if len(deployRuns) == 0 && len(driftRuns) == 0 && len(previewRuns) == 0 {
-		return nil
-	}
-
-	var feats []string
-	if len(deployRuns) > 0 {
-		feats = append(feats, cloudFeatScriptSyncDeployment)
-	}
-	if len(driftRuns) > 0 {
-		feats = append(feats, cloudFeatScriptSyncDriftStatus)
-	}
-	if len(previewRuns) > 0 {
-		feats = append(feats, cloudFeatScriptSyncPreview)
-	}
-
-	isCI := os.Getenv("GITHUB_ACTIONS") != "" || os.Getenv("GITLAB_CI") != "" || os.Getenv("BITBUCKET_BUILD_NUMBER") != ""
-	if len(previewRuns) > 0 && !isCI {
-		s.engine.DisableCloudFeatures(errors.E(cloudSyncPreviewCICDWarning))
-		return nil
-	}
-
-	if !s.engine.Project().IsRepo() {
-		s.engine.DisableCloudFeatures(errors.E("cloud features require a git repository"))
-		return nil
-	}
-
-	err := s.engine.SetupCloudConfig(feats)
-	err = s.engine.HandleCloudCriticalError(err)
-	if err != nil {
-		return err
-	}
-
-	if s.engine.IsCloudDisabled() {
-		return nil
-	}
-
-	if len(deployRuns) > 0 {
-		uuid, err := uuid.GenerateUUID()
-		err = s.engine.HandleCloudCriticalError(err)
-		if err != nil {
-			return err
-		}
-		s.state.RunUUID = resources.UUID(uuid)
-	}
-
-	if s.engine.IsCloudDisabled() {
-		return nil
-	}
-
-	cloudsync.DetectCloudMetadata(s.engine, &s.state)
-
-	if s.engine.IsCloudDisabled() {
-		return nil
-	}
-
-	if len(deployRuns) > 0 {
-		uuid, err := uuid.GenerateUUID()
-		err = s.engine.HandleCloudCriticalError(err)
-		if err != nil {
-			return err
-		}
-
-		s.state.RunUUID = resources.UUID(uuid)
-
-		sortableDeployStacks := make([]*config.SortableStack, len(deployRuns))
-		for i, e := range deployRuns {
-			sortableDeployStacks[i] = &config.SortableStack{Stack: e.Stack}
-		}
-		err = s.engine.EnsureAllStackHaveIDs(sortableDeployStacks)
-		if err != nil {
-			return err
-		}
-		err = cloudsync.CreateCloudDeployment(s.engine, s.workingDir, deployRuns, &s.state)
-		if err != nil {
-			return err
-		}
-	}
-
-	if len(driftRuns) > 0 {
-		sortableDriftStacks := make([]*config.SortableStack, len(driftRuns))
-		for i, e := range driftRuns {
-			sortableDriftStacks[i] = &config.SortableStack{Stack: e.Stack}
-		}
-		err = s.engine.EnsureAllStackHaveIDs(sortableDriftStacks)
-		if err != nil {
-			return err
-		}
-	}
-
-	if len(previewRuns) > 0 {
-		for metaID, previewID := range cloudsync.CreateCloudPreview(s.engine, s.GitFilter, previewRuns, s.Target, s.FromTarget, &s.state) {
-			s.state.SetMeta2PreviewID(metaID, previewID)
-		}
 	}
 	return nil
 }
