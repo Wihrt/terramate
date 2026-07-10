@@ -10,7 +10,7 @@ import (
 	runcmd "github.com/terramate-io/terramate/commands/run"
 	. "github.com/terramate-io/terramate/e2etests/internal/runner"
 	"github.com/terramate-io/terramate/test/sandbox"
-	"github.com/terramate-io/terramate/ui/tui/clitest"
+	"github.com/terramate-io/terramate/ui/tui"
 	"go.lsp.dev/uri"
 )
 
@@ -78,7 +78,7 @@ func TestSafeguardsUsages(t *testing.T) {
 			file.HostPath(),
 		), RunExpected{
 			Status:      1,
-			StderrRegex: string(clitest.ErrSafeguardKeywordValidation),
+			StderrRegex: string(tui.ErrSafeguardKeywordValidation),
 		})
 	})
 
@@ -94,7 +94,7 @@ func TestSafeguardsUsages(t *testing.T) {
 			file.HostPath(),
 		), RunExpected{
 			Status:      1,
-			StderrRegex: string(clitest.ErrSafeguardKeywordValidation),
+			StderrRegex: string(tui.ErrSafeguardKeywordValidation),
 		})
 	})
 
@@ -111,7 +111,7 @@ func TestSafeguardsUsages(t *testing.T) {
 			file.HostPath(),
 		), RunExpected{
 			Status:      1,
-			StderrRegex: string(clitest.ErrSafeguardKeywordValidation),
+			StderrRegex: string(tui.ErrSafeguardKeywordValidation),
 		})
 	})
 }

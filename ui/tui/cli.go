@@ -31,7 +31,6 @@ import (
 	"github.com/terramate-io/terramate/git"
 	"github.com/terramate-io/terramate/hcl"
 	"github.com/terramate-io/terramate/printer"
-	"github.com/terramate-io/terramate/ui/tui/cliauth"
 	"github.com/terramate-io/terramate/ui/tui/cliconfig"
 	"github.com/terramate-io/terramate/ui/tui/out"
 
@@ -547,9 +546,16 @@ func (c *CLI) SetCommandAnalytics(cmd string, opts ...tel.MessageOpt) {
 	tel.DefaultRecord.Set(allOpts...)
 }
 
+// credentialFileName is the name of the (now-legacy) cached credentials file
+// that used to be written by the removed Terramate Cloud login flow. It is
+// kept here only so telemetry can still detect its presence for auth-type
+// reporting purposes.
+const credentialFileName = "credentials.tmrc.json"
+
 func (c *CLI) setProjectAnalytics() {
 	cpsigfile := filepath.Join(c.clicfg.UserTerramateDir, "checkpoint_signature")
 	anasigfile := filepath.Join(c.clicfg.UserTerramateDir, "analytics_signature")
+	credfile := filepath.Join(c.clicfg.UserTerramateDir, credentialFileName)
 
 	project := c.state.engine.Project()
 	var repo *git.Repository
@@ -560,7 +566,7 @@ func (c *CLI) setProjectAnalytics() {
 	r := tel.DefaultRecord
 	r.Set(
 		tel.OrgName(os.Getenv("TM_CLOUD_ORGANIZATION")),
-		tel.DetectFromEnv(cliauth.CredentialFile(c.clicfg), cpsigfile, anasigfile, project.CIPlatform(), repo),
+		tel.DetectFromEnv(credfile, cpsigfile, anasigfile, project.CIPlatform(), repo),
 		tel.StringFlag("chdir", c.state.wd),
 	)
 }

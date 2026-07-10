@@ -11,7 +11,6 @@ import (
 	"sync"
 
 	"github.com/terramate-io/terramate/ci"
-	"github.com/terramate-io/terramate/cloud/api/resources"
 	"github.com/terramate-io/terramate/git"
 )
 
@@ -63,16 +62,16 @@ func OrgName(orgName string) MessageOpt {
 }
 
 // OrgUUID sets the organization uuid.
-func OrgUUID(orgUUID resources.UUID) MessageOpt {
+func OrgUUID(orgUUID string) MessageOpt {
 	return func(msg *Message) {
-		msg.OrgUUID = string(orgUUID)
+		msg.OrgUUID = orgUUID
 	}
 }
 
 // AuthUser sets the auth user.
-func AuthUser(authUser resources.UUID) MessageOpt {
+func AuthUser(authUser string) MessageOpt {
 	return func(msg *Message) {
-		msg.AuthUser = string(authUser)
+		msg.AuthUser = authUser
 	}
 }
 

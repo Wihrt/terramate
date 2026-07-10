@@ -35,7 +35,6 @@ import (
 	"github.com/terramate-io/terramate/engine"
 	"github.com/terramate-io/terramate/errors"
 	"github.com/terramate-io/terramate/safeguard"
-	"github.com/terramate-io/terramate/ui/tui/clitest"
 
 	"github.com/alecthomas/kong"
 
@@ -44,6 +43,9 @@ import (
 
 // ErrSetup is the error returned when the CLI fails to setup its initial values.
 const ErrSetup errors.Kind = "failed to setup Terramate"
+
+// ErrSafeguardKeywordValidation indicates the safeguard keywords validation failed.
+const ErrSafeguardKeywordValidation errors.Kind = "failed to validate safeguard keywords"
 
 func handleRootVersionFlagAlone(parsedSpec any, _ *CLI) (name string, val any, run func(c *CLI, value any) error, isset bool) {
 	p := AsFlagSpec[FlagSpec](parsedSpec)
@@ -534,7 +536,7 @@ func setupSafeguards(parsedArgs *FlagSpec, runflags runSafeguardsCliSpec) (sf ru
 
 	if runflags.DisableSafeguards.Has(safeguard.All) && runflags.DisableSafeguards.Has(safeguard.None) {
 		return runcmd.Safeguards{}, errors.E(
-			errors.E(clitest.ErrSafeguardKeywordValidation,
+			errors.E(ErrSafeguardKeywordValidation,
 				`the safeguards keywords "all" and "none" are incompatible`),
 			"Disabling safeguards",
 		)
