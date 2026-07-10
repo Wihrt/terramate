@@ -64,3 +64,48 @@ run = "go install --ldflags '-extldflags \"-static\"' -tags profiler ./cmd/terra
 description = "Install tgdeps"
 env = { CGO_ENABLED = "0" }
 run = "go install --ldflags '-extldflags \"-static\"' ./cmd/tgdeps"
+
+[tasks.generate]
+description = "Regenerate files from .tm templates"
+run = "./bin/terramate generate"
+
+[tasks.fmt]
+description = "Format go code"
+run = "go run golang.org/x/tools/cmd/goimports@v0.1.7 -w ."
+
+[tasks."lint:install"]
+description = "Install the linter"
+run = "go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.6.1"
+
+[tasks."lint:all"]
+description = "Lint all code"
+run = "golangci-lint run ./..."
+
+[tasks.mod]
+description = "Tidy up go modules"
+run = "go mod tidy"
+
+[tasks."mod:check"]
+description = "Check go modules are tidy"
+run = "./hack/mod-check"
+
+[tasks.license]
+description = "Add license headers to code"
+run = "go run github.com/google/addlicense@v1.0.0 -l mpl -s=only -ignore 'docs/**' -ignore '.tmtriggers/**' -ignore '**/*.tf' -c \"Terramate GmbH\" ."
+
+[tasks."license:check"]
+description = "Check code is licensed properly"
+run = "go run github.com/google/addlicense@v1.0.0 -l mpl -s=only -ignore 'docs/**' -ignore '.tmtriggers/**' -ignore '**/*.tf' --check ."
+
+[tasks."pin-gha"]
+description = "Pin github actions to SHAs"
+run = "npm exec --yes pin-github-action@3.5.1 -- ./.github/workflows/*.yml"
+
+[tasks.coverage]
+description = "Generate coverage report"
+run = "go test -count=1 -coverprofile=coverage.txt -coverpkg=./... ./..."
+
+[tasks."coverage:show"]
+description = "Generate coverage report and open it in the browser"
+depends = ["coverage"]
+run = "go tool cover -html=coverage.txt"
