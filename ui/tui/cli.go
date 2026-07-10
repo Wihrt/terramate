@@ -478,8 +478,6 @@ func (c *CLI) Exec(args []string) {
 		panic(errors.E(errors.ErrInternal, "please report this as a bug"))
 	}
 
-	migrateFlagAliases(parsedArgs)
-
 	// profiler is only started if Terramate is built with -tags profiler
 	startProfiler(parsedArgs.CPUProfiling)
 	defer stopProfiler(parsedArgs.CPUProfiling)
