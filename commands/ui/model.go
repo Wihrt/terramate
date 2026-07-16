@@ -154,12 +154,13 @@ type Model struct {
 	objectEditStack []ObjectEditFrame // Stack for nested object input editing
 
 	// Reconfigure state
-	reconfigBundles      []*config.Bundle // Filtered bundles for current filter, rebuilt on filter change
-	reconfigCursor       int              // Cursor in reconfigBundles
-	reconfigBundle       *config.Bundle   // The bundle currently being reconfigured
-	reconfigFromOverview bool             // true when reconfig was entered from session panel (skip ViewReconfigSelect on ESC)
-	reconfigFilters      []envFilterState // Precomputed valid filter states
-	reconfigFilterPos    int              // Current position in reconfigFilters (-1 = all/no filter)
+	reconfigBundles      []*config.Bundle    // Filtered bundles for current filter, rebuilt on filter change
+	reconfigCursor       int                 // Cursor in reconfigBundles
+	reconfigBundle       *config.Bundle      // The bundle currently being reconfigured
+	reconfigFromOverview bool                // true when reconfig was entered from session panel (skip ViewReconfigSelect on ESC)
+	reconfigFilters      []envFilterState    // Precomputed valid filter states
+	reconfigFilterPos    int                 // Current position in reconfigFilters (-1 = all/no filter)
+	reconfigFilter       reconfigFilterState // Free-text filter state for the Reconfigure bundle list
 
 	// Promote state
 	promoteBundles    []*config.Bundle      // Filtered bundles for current filter

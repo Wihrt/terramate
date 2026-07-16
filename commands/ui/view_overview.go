@@ -131,6 +131,7 @@ func (m *Model) executeCommand() {
 		m.viewState = ViewCreateSelect
 	case "Reconfigure":
 		m.reconfigFilterPos = -1
+		m.reconfigFilter = newReconfigFilterState()
 		m.reconfigFilters = m.buildReconfigFilters()
 		m.reconfigBundles = m.buildReconfigBundles()
 		if len(m.reconfigBundles) == 0 {
