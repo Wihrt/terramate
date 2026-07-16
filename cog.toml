@@ -1,0 +1,23 @@
+#:schema https://docs.cocogitto.io/cog-schema.json
+
+tag_prefix = "v"
+branch_whitelist = ["main"]
+ignore_merge_commits = true
+from_latest_tag = true
+disable_changelog = true
+
+# Default profile: automatic "dev" pre-release path.
+# {{version}} is the bare semver (no "v"), matching VERSION's existing convention.
+# {{version_tag}} includes tag_prefix -- this is the actual git ref to push.
+pre_bump_hooks = ["echo -n {{version}} > VERSION"]
+post_bump_hooks = ["git push origin {{version_tag}}"]
+
+# Manual "clean release" profile, invoked via `cog bump --hook-profile release`.
+# Profiles do NOT inherit the default hooks above, so pre_bump_hooks is
+# duplicated here deliberately -- omitting it would stop updating VERSION.
+[bump_profiles.release]
+pre_bump_hooks = ["echo -n {{version}} > VERSION"]
+post_bump_hooks = [
+    "git push origin HEAD:refs/heads/main",
+    "git push origin {{version_tag}}",
+]
