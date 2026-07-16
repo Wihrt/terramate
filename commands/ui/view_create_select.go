@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/terramate-io/terramate/config"
@@ -52,11 +53,79 @@ func buildFlatBundles(est *EngineState) []flatBundleEntry {
 	return entries
 }
 
+// flatFilterState holds the free-text filter editing state for the flat
+// (Scaffold/Create) bundle list.
+type flatFilterState struct {
+	input   textinput.Model
+	editing bool
+}
+
+// newFlatFilterState creates a fresh, unfocused filter input.
+func newFlatFilterState() flatFilterState {
+	ti := textinput.New()
+	ti.Prompt = "/ "
+	ti.CharLimit = 128
+	return flatFilterState{input: ti}
+}
+
+// flatBundleMatchesFilter reports whether entry's bundle name contains query
+// (case-insensitive). An empty query matches everything.
+func flatBundleMatchesFilter(entry flatBundleEntry, query string) bool {
+	if query == "" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(entry.bundle.Name), strings.ToLower(query))
+}
+
+// applyFlatBundleFilter recomputes m.flatBundles from m.allFlatBundles using
+// the current filter query, and resets the cursor.
+func (m *Model) applyFlatBundleFilter() {
+	query := strings.TrimSpace(m.flatBundleFilter.input.Value())
+	m.flatBundles = nil
+	for _, entry := range m.allFlatBundles {
+		if flatBundleMatchesFilter(entry, query) {
+			m.flatBundles = append(m.flatBundles, entry)
+		}
+	}
+	m.flatBundleCursor = 0
+	m.bundleSelectErr = ""
+}
+
 func (m Model) updateCreateSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.flatBundleFilter.editing {
+		switch {
+		case key.Matches(msg, keys.Escape):
+			m.flatBundleFilter.input.SetValue("")
+			m.flatBundleFilter.input.Blur()
+			m.flatBundleFilter.editing = false
+			m.applyFlatBundleFilter()
+			return m, nil
+		case key.Matches(msg, keys.Enter):
+			m.flatBundleFilter.input.Blur()
+			m.flatBundleFilter.editing = false
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.flatBundleFilter.input, cmd = m.flatBundleFilter.input.Update(msg)
+		m.applyFlatBundleFilter()
+		return m, cmd
+	}
+
 	switch {
 	case key.Matches(msg, keys.Escape):
+		if m.flatBundleFilter.input.Value() != "" {
+			m.flatBundleFilter.input.SetValue("")
+			m.applyFlatBundleFilter()
+			return m, nil
+		}
 		m.viewState = ViewOverview
 		return m, nil
+
+	case msg.String() == "/":
+		m.flatBundleFilter.editing = true
+		m.flatBundleFilter.input.Width = m.effectiveWidth() - 8
+		m.flatBundleFilter.input.Focus()
+		return m, textinput.Blink
 
 	case key.Matches(msg, keys.PgUp), key.Matches(msg, keys.PgDn):
 		down := key.Matches(msg, keys.PgDn)
@@ -470,7 +539,7 @@ func (m Model) renderBundleSelectView() string {
 
 	title := m.renderHeader("Scaffold Bundle Instance")
 
-	help := helpStyle.Render(m.finalHelpText("esc: back"))
+	help := helpStyle.Render(m.finalHelpText(m.flatBundleFilterHelp()))
 
 	content := m.renderFlatBundleList(innerWidth)
 
@@ -484,6 +553,19 @@ func (m Model) renderBundleSelectView() string {
 	)
 
 	return lipgloss.NewStyle().Padding(1, 2).Render(all)
+}
+
+// flatBundleFilterHelp returns the help-line hint reflecting the current
+// filter state of the flat bundle list.
+func (m Model) flatBundleFilterHelp() string {
+	switch {
+	case m.flatBundleFilter.editing:
+		return "esc: clear • enter: apply"
+	case m.flatBundleFilter.input.Value() != "":
+		return "/: edit filter • esc: back"
+	default:
+		return "/: filter • esc: back"
+	}
 }
 
 // detailField represents a labeled field in the detail box.
@@ -716,7 +798,12 @@ func (m Model) flatBundleListHeader(innerWidth int) string {
 		detailBox = renderDetailBox(innerWidth, "Bundle Details", fields)
 	}
 
-	headerParts := []string{detailBox}
+	var headerParts []string
+	if m.flatBundleFilter.editing || m.flatBundleFilter.input.Value() != "" {
+		filterStyle := lipgloss.NewStyle().Foreground(colorTextMuted)
+		headerParts = append(headerParts, filterStyle.Render(m.flatBundleFilter.input.View()), "")
+	}
+	headerParts = append(headerParts, detailBox)
 	if m.bundleSelectErr != "" {
 		headerParts = append(headerParts, renderErrorBox(innerWidth, m.bundleSelectErr))
 	}

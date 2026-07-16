@@ -135,7 +135,9 @@ type Model struct {
 	createExitConfirmIdx int                     // 0 = Yes, 1 = No
 
 	// Bundle selection state (flat list)
-	flatBundles            []flatBundleEntry
+	allFlatBundles         []flatBundleEntry // Unfiltered master list, rebuilt each time Scaffold is entered
+	flatBundles            []flatBundleEntry // Filtered view of allFlatBundles for the current filter query
+	flatBundleFilter       flatFilterState   // Free-text filter state for the flat bundle list
 	flatBundleCursor       int
 	selectedCollIdx        int // Set by selectFlatBundle, used by loadBundleDef
 	selectedBundleIdx      int // Set by selectFlatBundle, used by loadBundleDef
