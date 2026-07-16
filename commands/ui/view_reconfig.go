@@ -30,6 +30,17 @@ func (m Model) updateReconfigSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.viewState = ViewOverview
 		return m, nil
 
+	case key.Matches(msg, keys.PgUp), key.Matches(msg, keys.PgDn):
+		down := key.Matches(msg, keys.PgDn)
+		innerWidth := m.effectiveWidth() - 4
+		contentWidth := innerWidth - 4 // scrollbarGutter, matches renderReconfigSelectView
+		availableHeight := m.effectiveContentHeight() - lipgloss.Height(m.reconfigListHeader(innerWidth))
+		groups := groupBundles(m.reconfigBundles)
+		selectedItemIdx, items := m.renderGroupedBundleItems(groups, m.reconfigCursor, contentWidth)
+		newItemIdx := reconfigPageCursor(items, selectedItemIdx, availableHeight, 0, down)
+		m.reconfigCursor = reconfigCursorForItem(items, newItemIdx)
+		return m, nil
+
 	case key.Matches(msg, keys.Up):
 		if m.reconfigCursor > 0 {
 			m.reconfigCursor--
@@ -319,7 +330,6 @@ func (m Model) renderGroupedBundleItems(groups []bundleGroup, cursor, contentWid
 }
 
 func (m Model) renderReconfigSelectView() string {
-	est := m.EngineState
 	panelWidth := m.effectiveWidth()
 	innerWidth := panelWidth - 4
 	scrollbarGutter := 4 // left gap(1) + scrollbar(1) + right gap(2)
@@ -348,32 +358,7 @@ func (m Model) renderReconfigSelectView() string {
 	}
 	title := m.renderHeader(breadcrumb)
 
-	// Detail box for highlighted bundle
-	var detailBox string
-	if m.reconfigCursor < len(m.reconfigBundles) {
-		b := m.reconfigBundles[m.reconfigCursor]
-		fields := []detailField{
-			{label: "Bundle", value: b.DefinitionMetadata.Name + " v" + b.DefinitionMetadata.Version, truncEnd: true},
-		}
-		if b.DefinitionMetadata.Class != "" {
-			fields = append(fields, detailField{label: "Class", value: b.DefinitionMetadata.Class, truncEnd: true})
-		}
-		fields = append(fields, detailField{label: "Alias", value: displayNameFromAlias(b.Alias, b.Name), truncEnd: true})
-		envName := "n/a"
-		if b.Environment != nil {
-			envName = b.Environment.Name
-		}
-		fields = append(fields, detailField{label: "Environment", value: envName, truncEnd: true})
-		fields = append(fields, detailField{}) // separator
-		fields = append(fields, detailField{label: "Source", value: b.Source})
-		hostPath := project.PrjAbsPath(est.Root.HostDir(), b.Info.HostPath()).String()
-		if hostPath != "" {
-			fields = append(fields, detailField{label: "Config", value: hostPath})
-		}
-		detailBox = renderDetailBox(innerWidth, "Bundle Instance Details", fields)
-	}
-
-	header := lipgloss.JoinVertical(lipgloss.Left, detailBox, "")
+	header := m.reconfigListHeader(innerWidth)
 	headerHeight := lipgloss.Height(header)
 	availableHeight := m.effectiveContentHeight() - headerHeight
 
@@ -418,6 +403,75 @@ func (m Model) renderReconfigSelectView() string {
 	)
 
 	return lipgloss.NewStyle().Padding(1, 2).Render(content)
+}
+
+// reconfigListHeader renders the detail box shown above the Reconfigure
+// bundle list. Used both for display and, via lipgloss.Height, to compute
+// the available height for PgUp/PgDn page-jump math.
+func (m Model) reconfigListHeader(innerWidth int) string {
+	est := m.EngineState
+	var detailBox string
+	if m.reconfigCursor < len(m.reconfigBundles) {
+		b := m.reconfigBundles[m.reconfigCursor]
+		fields := []detailField{
+			{label: "Bundle", value: b.DefinitionMetadata.Name + " v" + b.DefinitionMetadata.Version, truncEnd: true},
+		}
+		if b.DefinitionMetadata.Class != "" {
+			fields = append(fields, detailField{label: "Class", value: b.DefinitionMetadata.Class, truncEnd: true})
+		}
+		fields = append(fields, detailField{label: "Alias", value: displayNameFromAlias(b.Alias, b.Name), truncEnd: true})
+		envName := "n/a"
+		if b.Environment != nil {
+			envName = b.Environment.Name
+		}
+		fields = append(fields, detailField{label: "Environment", value: envName, truncEnd: true})
+		fields = append(fields, detailField{}) // separator
+		fields = append(fields, detailField{label: "Source", value: b.Source})
+		hostPath := project.PrjAbsPath(est.Root.HostDir(), b.Info.HostPath()).String()
+		if hostPath != "" {
+			fields = append(fields, detailField{label: "Config", value: hostPath})
+		}
+		detailBox = renderDetailBox(innerWidth, "Bundle Instance Details", fields)
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, detailBox, "")
+}
+
+// reconfigPageCursor returns the new item-list index for a PgUp/PgDn jump
+// over the Reconfigure bundle list. down selects PgDn vs PgUp. cursor and
+// the return value are indices into items (as returned by
+// renderGroupedBundleItems), not bundle indices — see reconfigCursorForItem.
+func reconfigPageCursor(items []renderedItem, cursor, availableHeight, sep int, down bool) int {
+	if len(items) == 0 {
+		return 0
+	}
+	start, end := scrollWindowVar(cursor, items, availableHeight, sep)
+	if down {
+		for i := end; i < len(items); i++ {
+			if items[i].selectable {
+				return i
+			}
+		}
+		return lastSelectableIndex(items)
+	}
+	for i := start - 1; i >= 0; i-- {
+		if items[i].selectable {
+			return i
+		}
+	}
+	return firstSelectableIndex(items)
+}
+
+// reconfigCursorForItem converts an index into the rendered items list back
+// into a bundle-index (m.reconfigCursor space) by counting selectable items
+// before it.
+func reconfigCursorForItem(items []renderedItem, itemIdx int) int {
+	rank := 0
+	for i := 0; i < itemIdx; i++ {
+		if items[i].selectable {
+			rank++
+		}
+	}
+	return rank
 }
 
 func (m Model) renderReconfigInputView() string {
