@@ -58,6 +58,16 @@ func (m Model) updateCreateSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.viewState = ViewOverview
 		return m, nil
 
+	case key.Matches(msg, keys.PgUp), key.Matches(msg, keys.PgDn):
+		down := key.Matches(msg, keys.PgDn)
+		innerWidth := m.effectiveWidth() - 4
+		contentWidth := innerWidth - 4 // scrollbarGutter, matches renderFlatBundleList
+		availableHeight := m.effectiveContentHeight() - lipgloss.Height(m.flatBundleListHeader(innerWidth))
+		items := buildFlatBundleItems(m.flatBundles, m.flatBundleCursor, contentWidth)
+		m.flatBundleCursor = flatBundlePageCursor(items, m.flatBundleCursor, availableHeight, 1, down)
+		m.bundleSelectErr = ""
+		return m, nil
+
 	case key.Matches(msg, keys.Up):
 		if m.flatBundleCursor > 0 {
 			m.flatBundleCursor--
@@ -651,7 +661,36 @@ func (m Model) renderFlatBundleList(innerWidth int) string {
 	scrollbarGutter := 4
 	contentWidth := innerWidth - scrollbarGutter
 
-	// Detail box for the highlighted bundle
+	header := m.flatBundleListHeader(innerWidth)
+	headerHeight := lipgloss.Height(header)
+	availableHeight := m.effectiveContentHeight() - headerHeight
+
+	items := buildFlatBundleItems(m.flatBundles, m.flatBundleCursor, contentWidth)
+
+	start, end := scrollWindowVar(m.flatBundleCursor, items, availableHeight, 1)
+
+	var sb strings.Builder
+	for i := start; i < end; i++ {
+		if i > start {
+			sb.WriteString("\n\n")
+		}
+		sb.WriteString(items[i].content)
+	}
+	listContent := sb.String()
+
+	if len(m.flatBundles) > end-start {
+		trackHeight := lipgloss.Height(listContent)
+		scrollbar := renderScrollbar(len(m.flatBundles), end-start, start, trackHeight)
+		listContent = lipgloss.JoinHorizontal(lipgloss.Top, listContent, " ", scrollbar, "  ")
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left, header, listContent)
+}
+
+// flatBundleListHeader renders the detail box (and any inline error) shown
+// above the flat bundle list. Used both for display and, via lipgloss.Height,
+// to compute the available height for PgUp/PgDn page-jump math.
+func (m Model) flatBundleListHeader(innerWidth int) string {
 	var detailBox string
 	if m.flatBundleCursor < len(m.flatBundles) {
 		est := m.EngineState
@@ -682,10 +721,12 @@ func (m Model) renderFlatBundleList(innerWidth int) string {
 		headerParts = append(headerParts, renderErrorBox(innerWidth, m.bundleSelectErr))
 	}
 	headerParts = append(headerParts, "")
-	header := lipgloss.JoinVertical(lipgloss.Left, headerParts...)
-	headerHeight := lipgloss.Height(header)
-	availableHeight := m.effectiveContentHeight() - headerHeight
+	return lipgloss.JoinVertical(lipgloss.Left, headerParts...)
+}
 
+// buildFlatBundleItems renders each flat bundle entry into a renderedItem,
+// used both for display and for PgUp/PgDn page-jump math.
+func buildFlatBundleItems(entries []flatBundleEntry, cursor, contentWidth int) []renderedItem {
 	itemStyle := lipgloss.NewStyle().
 		Bold(true).
 		Width(contentWidth)
@@ -706,11 +747,11 @@ func (m Model) renderFlatBundleList(innerWidth int) string {
 	collStyle := lipgloss.NewStyle().Foreground(colorTextMuted)
 
 	var items []renderedItem
-	for i, entry := range m.flatBundles {
+	for i, entry := range entries {
 		displayName := entry.bundle.Name + " " + versionStyle.Render("v"+entry.bundle.Version) + " " + collStyle.Render("• "+entry.collName)
 
 		var line string
-		if i == m.flatBundleCursor {
+		if i == cursor {
 			line = selectedStyle.Render("› " + displayName)
 		} else {
 			line = itemStyle.Render("  " + displayName)
@@ -722,25 +763,30 @@ func (m Model) renderFlatBundleList(innerWidth int) string {
 		}
 		items = append(items, renderedItem{content: block, height: lipgloss.Height(block), selectable: true})
 	}
+	return items
+}
 
-	start, end := scrollWindowVar(m.flatBundleCursor, items, availableHeight, 1)
-
-	var sb strings.Builder
-	for i := start; i < end; i++ {
-		if i > start {
-			sb.WriteString("\n\n")
+// flatBundlePageCursor returns the new cursor position for a PgUp/PgDn jump
+// over the flat bundle list. down selects PgDn (next page) vs PgUp (previous page).
+func flatBundlePageCursor(items []renderedItem, cursor, availableHeight, sep int, down bool) int {
+	if len(items) == 0 {
+		return 0
+	}
+	start, end := scrollWindowVar(cursor, items, availableHeight, sep)
+	if down {
+		for i := end; i < len(items); i++ {
+			if items[i].selectable {
+				return i
+			}
 		}
-		sb.WriteString(items[i].content)
+		return lastSelectableIndex(items)
 	}
-	listContent := sb.String()
-
-	if len(m.flatBundles) > end-start {
-		trackHeight := lipgloss.Height(listContent)
-		scrollbar := renderScrollbar(len(m.flatBundles), end-start, start, trackHeight)
-		listContent = lipgloss.JoinHorizontal(lipgloss.Top, listContent, " ", scrollbar, "  ")
+	for i := start - 1; i >= 0; i-- {
+		if items[i].selectable {
+			return i
+		}
 	}
-
-	return lipgloss.JoinVertical(lipgloss.Left, header, listContent)
+	return firstSelectableIndex(items)
 }
 
 type renderedItem struct {
