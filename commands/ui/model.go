@@ -169,6 +169,7 @@ type Model struct {
 	promoteBundle     *config.Bundle        // The bundle currently being promoted
 	promoteFilters    []envFilterState      // Precomputed valid filter states
 	promoteFilterPos  int                   // Current position in promoteFilters (-1 = all/no filter)
+	promoteFilter     promoteFilterState    // Free-text filter state for the Promote bundle list
 
 	// Transient status
 	currentErr       error  // Shown in the overview error area, cleared on next keypress

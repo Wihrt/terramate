@@ -4,9 +4,11 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/zclconf/go-cty/cty"
@@ -17,8 +19,32 @@ import (
 )
 
 func (m Model) updatePromoteSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.promoteFilter.editing {
+		switch {
+		case key.Matches(msg, keys.Escape):
+			m.promoteFilter.input.SetValue("")
+			m.promoteFilter.input.Blur()
+			m.promoteFilter.editing = false
+			m.applyPromoteFilter()
+			return m, nil
+		case key.Matches(msg, keys.Enter):
+			m.promoteFilter.input.Blur()
+			m.promoteFilter.editing = false
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.promoteFilter.input, cmd = m.promoteFilter.input.Update(msg)
+		m.applyPromoteFilter()
+		return m, cmd
+	}
+
 	switch {
 	case key.Matches(msg, keys.Escape):
+		if m.promoteFilter.input.Value() != "" {
+			m.promoteFilter.input.SetValue("")
+			m.applyPromoteFilter()
+			return m, nil
+		}
 		if m.promoteFilterPos >= 0 {
 			m.promoteFilterPos = -1
 			m.applyPromoteFilter()
@@ -26,6 +52,12 @@ func (m Model) updatePromoteSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.viewState = ViewOverview
 		return m, nil
+
+	case msg.String() == "/":
+		m.promoteFilter.editing = true
+		m.promoteFilter.input.Width = m.effectiveWidth() - 8
+		m.promoteFilter.input.Focus()
+		return m, textinput.Blink
 
 	case key.Matches(msg, keys.PgUp), key.Matches(msg, keys.PgDn):
 		down := key.Matches(msg, keys.PgDn)
@@ -74,6 +106,35 @@ func (m Model) updatePromoteSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) applyPromoteFilter() {
 	m.promoteBundles, m.promoteTargetEnvs = m.buildAllPromoteBundles()
 	m.promoteCursor = 0
+}
+
+// promoteFilterState holds the free-text filter editing state for the
+// Promote bundle list.
+type promoteFilterState struct {
+	input   textinput.Model
+	editing bool
+}
+
+// newPromoteFilterState creates a fresh, unfocused filter input.
+func newPromoteFilterState() promoteFilterState {
+	ti := textinput.New()
+	ti.Prompt = "/ "
+	ti.CharLimit = 128
+	return promoteFilterState{input: ti}
+}
+
+// promoteBundleMatchesFilter reports whether b's definition name or
+// instance alias contains query (case-insensitive). An empty query matches
+// everything.
+func promoteBundleMatchesFilter(b *config.Bundle, query string) bool {
+	if query == "" {
+		return true
+	}
+	q := strings.ToLower(query)
+	if strings.Contains(strings.ToLower(b.DefinitionMetadata.Name), q) {
+		return true
+	}
+	return strings.Contains(strings.ToLower(displayNameFromAlias(b.Alias, b.Name)), q)
 }
 
 // loadPromoteBundle loads the bundle definition for the given bundle,
@@ -195,6 +256,7 @@ func (m Model) buildAllPromoteBundles() ([]*config.Bundle, []*config.Environment
 		}
 
 		existing := envAliases[targetEnv.ID]
+		query := strings.TrimSpace(m.promoteFilter.input.Value())
 		for _, b := range est.Registry.Bundles {
 			if b.Environment == nil || b.Environment.ID != targetEnv.PromoteFrom {
 				continue
@@ -203,6 +265,9 @@ func (m Model) buildAllPromoteBundles() ([]*config.Bundle, []*config.Environment
 				continue
 			}
 			if len(missingBundleRefs(b, existing)) > 0 {
+				continue
+			}
+			if !promoteBundleMatchesFilter(b, query) {
 				continue
 			}
 			bundles = append(bundles, b)
@@ -304,6 +369,9 @@ func (m Model) renderPromoteSelectView() string {
 	if f := m.currentPromoteFilter(); f != nil {
 		breadcrumb = "Promote Bundle Instance to " + f.label
 	}
+	if query := m.promoteFilter.input.Value(); query != "" {
+		breadcrumb += fmt.Sprintf(" — filter: %q", query)
+	}
 	title := m.renderHeader(breadcrumb)
 
 	header := m.promoteListHeader(innerWidth)
@@ -337,9 +405,20 @@ func (m Model) renderPromoteSelectView() string {
 	if m.promoteFilterPos >= 0 {
 		escLabel = "esc: reset filter"
 	}
+	if m.promoteFilter.input.Value() != "" {
+		escLabel = "esc: clear filter"
+	}
 	helpParts := escLabel
 	if len(m.promoteFilters) > 0 {
 		helpParts += " • e: show target env " + m.nextPromoteFilterName()
+	}
+	switch {
+	case m.promoteFilter.editing:
+		helpParts = "esc: clear • enter: apply"
+	case m.promoteFilter.input.Value() == "":
+		helpParts += " • /: filter"
+	default:
+		helpParts += " • /: edit filter"
 	}
 	help := helpStyle.Render(m.finalHelpText(helpParts))
 
@@ -381,7 +460,13 @@ func (m Model) promoteListHeader(innerWidth int) string {
 		}
 		detailBox = renderDetailBox(innerWidth, "Bundle Instance Details", fields)
 	}
-	return lipgloss.JoinVertical(lipgloss.Left, detailBox, "")
+	var headerParts []string
+	if m.promoteFilter.editing || m.promoteFilter.input.Value() != "" {
+		filterStyle := lipgloss.NewStyle().Foreground(colorTextMuted)
+		headerParts = append(headerParts, filterStyle.Render(m.promoteFilter.input.View()), "")
+	}
+	headerParts = append(headerParts, detailBox, "")
+	return lipgloss.JoinVertical(lipgloss.Left, headerParts...)
 }
 
 // promotePageCursor returns the new item-list index for a PgUp/PgDn jump

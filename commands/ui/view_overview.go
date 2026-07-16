@@ -146,6 +146,7 @@ func (m *Model) executeCommand() {
 		m.reconfigCursor = 0
 	case "Promote":
 		m.promoteFilterPos = -1
+		m.promoteFilter = newPromoteFilterState()
 		m.promoteFilters = m.buildPromoteFilters()
 		m.promoteBundles, m.promoteTargetEnvs = m.buildAllPromoteBundles()
 		if len(m.promoteBundles) == 0 {
