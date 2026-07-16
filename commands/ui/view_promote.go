@@ -244,6 +244,7 @@ func (m Model) buildAllPromoteBundles() ([]*config.Bundle, []*config.Environment
 
 	var bundles []*config.Bundle
 	var targetEnvs []*config.Environment
+	query := strings.TrimSpace(m.promoteFilter.input.Value())
 
 	for _, targetEnv := range est.Registry.Environments {
 		if targetEnv.PromoteFrom == "" {
@@ -256,7 +257,6 @@ func (m Model) buildAllPromoteBundles() ([]*config.Bundle, []*config.Environment
 		}
 
 		existing := envAliases[targetEnv.ID]
-		query := strings.TrimSpace(m.promoteFilter.input.Value())
 		for _, b := range est.Registry.Bundles {
 			if b.Environment == nil || b.Environment.ID != targetEnv.PromoteFrom {
 				continue

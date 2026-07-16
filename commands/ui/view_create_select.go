@@ -562,7 +562,7 @@ func (m Model) flatBundleFilterHelp() string {
 	case m.flatBundleFilter.editing:
 		return "esc: clear • enter: apply"
 	case m.flatBundleFilter.input.Value() != "":
-		return "/: edit filter • esc: back"
+		return "/: edit filter • esc: clear filter"
 	default:
 		return "/: filter • esc: back"
 	}
