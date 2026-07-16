@@ -423,6 +423,8 @@ type keyMap struct {
 	Down   key.Binding
 	Left   key.Binding
 	Right  key.Binding
+	PgUp   key.Binding
+	PgDn   key.Binding
 }
 
 var keys = keyMap{
@@ -457,6 +459,14 @@ var keys = keyMap{
 	Right: key.NewBinding(
 		key.WithKeys("right", "l"),
 		key.WithHelp("→/l", "right"),
+	),
+	PgUp: key.NewBinding(
+		key.WithKeys("pgup", "b"),
+		key.WithHelp("pgup", "page up"),
+	),
+	PgDn: key.NewBinding(
+		key.WithKeys("pgdown", "f"),
+		key.WithHelp("pgdn", "page down"),
 	),
 }
 

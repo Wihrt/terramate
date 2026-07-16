@@ -720,7 +720,7 @@ func (m Model) renderFlatBundleList(innerWidth int) string {
 		if entry.bundle.Description != "" {
 			block += "\n" + descStyle.Render(summaryLine(strings.TrimSpace(entry.bundle.Description)))
 		}
-		items = append(items, renderedItem{content: block, height: lipgloss.Height(block)})
+		items = append(items, renderedItem{content: block, height: lipgloss.Height(block), selectable: true})
 	}
 
 	start, end := scrollWindowVar(m.flatBundleCursor, items, availableHeight, 1)
@@ -744,8 +744,29 @@ func (m Model) renderFlatBundleList(innerWidth int) string {
 }
 
 type renderedItem struct {
-	content string
-	height  int
+	content    string
+	height     int
+	selectable bool // false for non-selectable rows such as group headers/separators
+}
+
+// firstSelectableIndex returns the index of the first selectable item, or 0 if none.
+func firstSelectableIndex(items []renderedItem) int {
+	for i, it := range items {
+		if it.selectable {
+			return i
+		}
+	}
+	return 0
+}
+
+// lastSelectableIndex returns the index of the last selectable item, or 0 if none.
+func lastSelectableIndex(items []renderedItem) int {
+	for i := len(items) - 1; i >= 0; i-- {
+		if items[i].selectable {
+			return i
+		}
+	}
+	return 0
 }
 
 // scrollWindowVar computes a visible window of variable-height items that fits

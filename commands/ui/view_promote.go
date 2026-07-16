@@ -402,12 +402,12 @@ func (m Model) renderPromoteGroupedItems(groups []bundleGroup, cursor, contentWi
 
 		// Empty line before group (except first)
 		if gi > 0 {
-			items = append(items, renderedItem{content: "", height: 1})
+			items = append(items, renderedItem{content: "", height: 1, selectable: false})
 		}
 
 		// Group header: non-selectable
 		headerLine := headerNameStyle.Render(g.name) + " " + versionStyle.Render("v"+b0.DefinitionMetadata.Version)
-		items = append(items, renderedItem{content: lineStyle.Render(headerLine), height: 1})
+		items = append(items, renderedItem{content: lineStyle.Render(headerLine), height: 1, selectable: false})
 
 		// Instance rows
 		for i, b := range g.bundles {
@@ -435,7 +435,7 @@ func (m Model) renderPromoteGroupedItems(groups []bundleGroup, cursor, contentWi
 				line += envStyle.Render(sourceEnvName + " → " + targetEnvName)
 			}
 
-			items = append(items, renderedItem{content: lineStyle.Render(line), height: 1})
+			items = append(items, renderedItem{content: lineStyle.Render(line), height: 1, selectable: true})
 		}
 	}
 

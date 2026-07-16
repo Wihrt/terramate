@@ -285,12 +285,12 @@ func (m Model) renderGroupedBundleItems(groups []bundleGroup, cursor, contentWid
 
 		// Empty line before group (except first)
 		if gi > 0 {
-			items = append(items, renderedItem{content: "", height: 1})
+			items = append(items, renderedItem{content: "", height: 1, selectable: false})
 		}
 
 		// Group header: non-selectable
 		headerLine := headerNameStyle.Render(g.name) + " " + versionStyle.Render("v"+b0.DefinitionMetadata.Version)
-		items = append(items, renderedItem{content: lineStyle.Render(headerLine), height: 1})
+		items = append(items, renderedItem{content: lineStyle.Render(headerLine), height: 1, selectable: false})
 
 		// Instance rows
 		for _, b := range g.bundles {
@@ -311,7 +311,7 @@ func (m Model) renderGroupedBundleItems(groups []bundleGroup, cursor, contentWid
 				line += " " + envStyle.Render("["+b.Environment.Name+"]")
 			}
 
-			items = append(items, renderedItem{content: lineStyle.Render(line), height: 1})
+			items = append(items, renderedItem{content: lineStyle.Render(line), height: 1, selectable: true})
 		}
 	}
 
