@@ -1,0 +1,33 @@
+# Copyright 2026 Terramate GmbH
+# SPDX-License-Identifier: MPL-2.0
+
+repos:
+  - repo: local
+    hooks:
+      - id: go-fmt
+        name: goimports
+        entry: mise run fmt
+        language: system
+        pass_filenames: false
+        types: [go]
+
+      - id: go-vet
+        name: go vet
+        entry: mise exec -- go vet ./...
+        language: system
+        pass_filenames: false
+        types: [go]
+
+      - id: go-build
+        name: go build
+        entry: mise run build
+        language: system
+        pass_filenames: false
+        types: [go]
+
+      - id: golangci-lint
+        name: golangci-lint
+        entry: mise exec -- golangci-lint run --new-from-rev=HEAD
+        language: system
+        pass_filenames: false
+        types: [go]

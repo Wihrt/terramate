@@ -1,0 +1,15 @@
+# Copyright 2026 Terramate GmbH
+# SPDX-License-Identifier: MPL-2.0
+
+name: OSS / Pull Request
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build_test:
+    name: Build and Test
+    uses: ./.github/workflows/oss-build-test.yml

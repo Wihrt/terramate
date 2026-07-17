@@ -1,187 +1,191 @@
-# Copyright 2023 Terramate GmbH
-# SPDX-License-Identifier: MPL-2.0
+# # Copyright 2023 Terramate GmbH
+# # SPDX-License-Identifier: MPL-2.0
 
-name: ci
+# name: ci
 
-on:
-  push:
-    branches:
-      - main
-      - v*.x # backporting branches.
+# # Auto-trigger disabled on forks: requires paid Blacksmith runners and
+# # Terramate Cloud secrets that only exist on terramate-io/terramate. Use
+# # OSS / Main (oss-main.yml) instead. Restore the push trigger upstream.
+# on:
+#   # push:
+#   #   branches:
+#   #     - main
+#   #     - v*.x # backporting branches.
+#   workflow_dispatch:
 
-jobs:
-  build_test:
-    name: Build and Test
-    runs-on: ${{ matrix.os.value }}
+# jobs:
+#   build_test:
+#     name: Build and Test
+#     runs-on: ${{ matrix.os.value }}
 
-    permissions:
-      id-token: write
-      contents: read
-      pull-requests: write
-      checks: read
+#     permissions:
+#       id-token: write
+#       contents: read
+#       pull-requests: write
+#       checks: read
 
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - name: ubuntu
-            value: "blacksmith-4vcpu-ubuntu-2404"
-          - name: macos-15
-            value: "macos-15"
+#     strategy:
+#       fail-fast: false
+#       matrix:
+#         os:
+#           - name: ubuntu
+#             value: "blacksmith-4vcpu-ubuntu-2404"
+#           - name: macos-15
+#             value: "macos-15"
 
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
-        with:
-          ref: ${{ github.head_ref }}
-          fetch-depth: 0
+#     steps:
+#       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+#         with:
+#           ref: ${{ github.head_ref }}
+#           fetch-depth: 0
 
-      - uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # pin@v5
-        with:
-          go-version-file: "go.mod"
-          check-latest: true
+#       - uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # pin@v5
+#         with:
+#           go-version-file: "go.mod"
+#           check-latest: true
 
-      - uses: opentofu/setup-opentofu@592200bd4b9bbf4772ace78f887668b1aee8f716 # pin@v1.0.5
-        with:
-          tofu_version: 1.6.2
-          tofu_wrapper: false
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+#       - uses: opentofu/setup-opentofu@592200bd4b9bbf4772ace78f887668b1aee8f716 # pin@v1.0.5
+#         with:
+#           tofu_version: 1.6.2
+#           tofu_wrapper: false
+#           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # pin@v3
-        with:
-          terraform_version: "1.7.5"
-          terraform_wrapper: false
+#       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # pin@v3
+#         with:
+#           terraform_version: "1.7.5"
+#           terraform_wrapper: false
 
-      - name: Install Terragrunt
-        uses: gruntwork-io/terragrunt-action@95fc057922e3c3d4cc021a81a213f088f333ddef # pin@v3.0.2
-        with:
-          tg_version: "0.88.0"
-          tf_path: "/usr/local/bin/terraform"
+#       - name: Install Terragrunt
+#         uses: gruntwork-io/terragrunt-action@95fc057922e3c3d4cc021a81a213f088f333ddef # pin@v3.0.2
+#         with:
+#           tg_version: "0.88.0"
+#           tf_path: "/usr/local/bin/terraform"
 
-      - name: Install Terramate
-        uses: terramate-io/terramate-action@b733b79e37eda5caba8703a75b522e9053d0846e # pin@i4k-fix-macos
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#       - name: Install Terramate
+#         uses: terramate-io/terramate-action@b733b79e37eda5caba8703a75b522e9053d0846e # pin@i4k-fix-macos
+#         env:
+#           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: build Terramate
-        run: make build && cp -v ./bin/terramate /usr/local/bin/terramate-bin
+#       - name: build Terramate
+#         run: make build && cp -v ./bin/terramate /usr/local/bin/terramate-bin
 
-      - name: make generate
-        run: make generate
+#       - name: make generate
+#         run: make generate
 
-      ### Check for changed stacks
+#       ### Check for changed stacks
 
-      - name: List changed Go packages
-        id: list_go_packages
-        run: terramate list --tags golang --changed --git-change-base HEAD^
+#       - name: List changed Go packages
+#         id: list_go_packages
+#         run: terramate list --tags golang --changed --git-change-base HEAD^
 
-      - name: List changed e2e tests packages
-        id: list_e2e_packages
-        run: terramate list --tags e2etests --changed --git-change-base HEAD^
+#       - name: List changed e2e tests packages
+#         id: list_e2e_packages
+#         run: terramate list --tags e2etests --changed --git-change-base HEAD^
 
-      - name: install linter
-        if: ${{ steps.list_go_packages.outputs.stdout || steps.list_e2e_packages }}
-        run: make lint/install
+#       - name: install linter
+#         if: ${{ steps.list_go_packages.outputs.stdout || steps.list_e2e_packages }}
+#         run: make lint/install
 
-      - name: checking go mod tidyness
-        if: ${{ steps.list_go_packages.outputs.stdout || steps.list_e2e_packages }}
-        run: make mod/check
+#       - name: checking go mod tidyness
+#         if: ${{ steps.list_go_packages.outputs.stdout || steps.list_e2e_packages }}
+#         run: make mod/check
 
-      - name: checking license on source code
-        if: ${{ steps.list_go_packages.outputs.stdout || steps.list_e2e_packages }}
-        run: make license/check
+#       - name: checking license on source code
+#         if: ${{ steps.list_go_packages.outputs.stdout || steps.list_e2e_packages }}
+#         run: make license/check
 
-      - name: Check Terramate formatting
-        run: terramate fmt --check
+#       - name: Check Terramate formatting
+#         run: terramate fmt --check
 
-      - name: Check Terraform formatting
-        if: ${{ steps.list_go_packages.outputs.stdout || steps.list_e2e_packages }}
-        run: terraform fmt -recursive -check -diff
+#       - name: Check Terraform formatting
+#         if: ${{ steps.list_go_packages.outputs.stdout || steps.list_e2e_packages }}
+#         run: terraform fmt -recursive -check -diff
 
-      ### Run the Terramate tests and create a Cloud deployment
+#       ### Run the Terramate tests and create a Cloud deployment
 
-      - name: Run Terraform deployment on changed packages
-        if: ${{ steps.list_go_packages.outputs.stdout }}
-        timeout-minutes: 30
-        run: terramate script run --changed --git-change-base HEAD^ --tags golang --continue-on-error --target ${{ matrix.os.name }}-go-packages --parallel 12 deploy
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          TM_TEST_TERRAFORM_REQUIRED_VERSION: "1.7.5"
+#       - name: Run Terraform deployment on changed packages
+#         if: ${{ steps.list_go_packages.outputs.stdout }}
+#         timeout-minutes: 30
+#         run: terramate script run --changed --git-change-base HEAD^ --tags golang --continue-on-error --target ${{ matrix.os.name }}-go-packages --parallel 12 deploy
+#         env:
+#           GITHUB_TOKEN: ${{ github.token }}
+#           TM_TEST_TERRAFORM_REQUIRED_VERSION: "1.7.5"
 
-      - name: Run all e2e tests if any Go packages changed
-        if: ${{ steps.list_go_packages.outputs.stdout }}
-        timeout-minutes: 30
-        run: terramate script run --tags e2etests --target ${{ matrix.os.name }}-e2e --parallel 12 deploy
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          TM_TEST_TERRAFORM_REQUIRED_VERSION: "1.7.5"
+#       - name: Run all e2e tests if any Go packages changed
+#         if: ${{ steps.list_go_packages.outputs.stdout }}
+#         timeout-minutes: 30
+#         run: terramate script run --tags e2etests --target ${{ matrix.os.name }}-e2e --parallel 12 deploy
+#         env:
+#           GITHUB_TOKEN: ${{ github.token }}
+#           TM_TEST_TERRAFORM_REQUIRED_VERSION: "1.7.5"
 
-      - name: Else only run the changed e2e packages
-        if: ${{ !steps.list_e2e_packages.outputs.stdout && steps.list_e2e_packages.outputs.stdout }}
-        timeout-minutes: 30
-        run: terramate script run --tags e2etests --changed --git-change-base HEAD^ --target "${{ matrix.os.name }}-e2e" --parallel 12 deploy
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          TM_TEST_TERRAFORM_REQUIRED_VERSION: "1.7.5"
+#       - name: Else only run the changed e2e packages
+#         if: ${{ !steps.list_e2e_packages.outputs.stdout && steps.list_e2e_packages.outputs.stdout }}
+#         timeout-minutes: 30
+#         run: terramate script run --tags e2etests --changed --git-change-base HEAD^ --target "${{ matrix.os.name }}-e2e" --parallel 12 deploy
+#         env:
+#           GITHUB_TOKEN: ${{ github.token }}
+#           TM_TEST_TERRAFORM_REQUIRED_VERSION: "1.7.5"
 
-  release_dry_run:
-    name: Release Dry Run
+#   release_dry_run:
+#     name: Release Dry Run
 
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+#     runs-on: blacksmith-4vcpu-ubuntu-2404
 
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
-        with:
-          ref: ${{github.event.pull_request.head.ref}}
-          repository: ${{github.event.pull_request.head.repo.full_name}}
-          fetch-depth: 0
-      - uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # pin@v5
-        with:
-          go-version-file: "go.mod"
-          check-latest: true
-      - name: install cosign
-        run: go install github.com/sigstore/cosign/v2/cmd/cosign@v2.2.4
-      - name: install goreleaser
-        run: |
-          curl -sL https://github.com/goreleaser/goreleaser-pro/releases/download/v1.14.0-pro/goreleaser-pro_Linux_x86_64.tar.gz -o /tmp/goreleaser.tar.gz
-          cd /tmp && tar -xzf goreleaser.tar.gz && chmod +x goreleaser
-          sudo mv /tmp/goreleaser /usr/local/bin/
+#     steps:
+#       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+#         with:
+#           ref: ${{github.event.pull_request.head.ref}}
+#           repository: ${{github.event.pull_request.head.repo.full_name}}
+#           fetch-depth: 0
+#       - uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # pin@v5
+#         with:
+#           go-version-file: "go.mod"
+#           check-latest: true
+#       - name: install cosign
+#         run: go install github.com/sigstore/cosign/v2/cmd/cosign@v2.2.4
+#       - name: install goreleaser
+#         run: |
+#           curl -sL https://github.com/goreleaser/goreleaser-pro/releases/download/v1.14.0-pro/goreleaser-pro_Linux_x86_64.tar.gz -o /tmp/goreleaser.tar.gz
+#           cd /tmp && tar -xzf goreleaser.tar.gz && chmod +x goreleaser
+#           sudo mv /tmp/goreleaser /usr/local/bin/
 
-      - name: Create cosign.pub file
-        run: echo "${{ secrets.COSIGN_PUBLIC_KEY }}" > cosign.pub
+#       - name: Create cosign.pub file
+#         run: echo "${{ secrets.COSIGN_PUBLIC_KEY }}" > cosign.pub
 
-      - name: release dry run
-        run: make release/dry-run
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GORELEASER_KEY: ${{ secrets.GORELEASER_API_KEY }}
-          FURY_TOKEN: ${{ secrets.FURY_TOKEN}}
-          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD}}
-          COSIGN_PRIVATE_KEY: ${{secrets.COSIGN_PRIVATE_KEY }}
+#       - name: release dry run
+#         run: make release/dry-run
+#         env:
+#           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#           GORELEASER_KEY: ${{ secrets.GORELEASER_API_KEY }}
+#           FURY_TOKEN: ${{ secrets.FURY_TOKEN}}
+#           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD}}
+#           COSIGN_PRIVATE_KEY: ${{secrets.COSIGN_PRIVATE_KEY }}
 
-      - name: Locate checksum file
-        id: find_checksum
-        run: |
-          if [ -z "$(ls dist/*checksums.txt)" ]; then
-            echo "Error: Checksum file not found."
-            exit 1
-          fi
-          echo "CHECKSUM_FILE=$(ls dist/*checksums.txt)" >> $GITHUB_ENV
+#       - name: Locate checksum file
+#         id: find_checksum
+#         run: |
+#           if [ -z "$(ls dist/*checksums.txt)" ]; then
+#             echo "Error: Checksum file not found."
+#             exit 1
+#           fi
+#           echo "CHECKSUM_FILE=$(ls dist/*checksums.txt)" >> $GITHUB_ENV
 
-      - name: Locate signature file
-        id: find_signature
-        run: |
-          if [ -z "$(ls dist/*checksum*.txt.sig)" ]; then
-            echo "Error: Signature file not found."
-            exit 1
-          fi
-          echo "SIGNATURE_FILE=$(ls dist/*checksum*.txt.sig)" >> $GITHUB_ENV
+#       - name: Locate signature file
+#         id: find_signature
+#         run: |
+#           if [ -z "$(ls dist/*checksum*.txt.sig)" ]; then
+#             echo "Error: Signature file not found."
+#             exit 1
+#           fi
+#           echo "SIGNATURE_FILE=$(ls dist/*checksum*.txt.sig)" >> $GITHUB_ENV
 
-      - name: Verify checksums with cosign
-        run: |
-          cosign verify-blob --key cosign.pub --signature ${{ env.SIGNATURE_FILE }} ${{ env.CHECKSUM_FILE }}
-  ci:
-    needs:
-      - build_test
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    steps:
-      - run: echo "All jobs ran successfully"
+#       - name: Verify checksums with cosign
+#         run: |
+#           cosign verify-blob --key cosign.pub --signature ${{ env.SIGNATURE_FILE }} ${{ env.CHECKSUM_FILE }}
+#   ci:
+#     needs:
+#       - build_test
+#     runs-on: blacksmith-4vcpu-ubuntu-2404
+#     steps:
+#       - run: echo "All jobs ran successfully"

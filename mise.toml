@@ -1,0 +1,247 @@
+# Copyright 2026 Terramate GmbH
+# SPDX-License-Identifier: MPL-2.0
+
+[tools]
+go = "1.25.8"
+golangci-lint = "2.6.1"
+goreleaser = "2.17.0"
+node = "22"
+pre-commit = "4.6.0"
+"go:github.com/google/addlicense" = "1.0.0"
+
+[tasks.build]
+description = "Build terramate + terramate-ls"
+depends = ["build:terramate", "build:terramate-ls"]
+
+[tasks."build:terramate"]
+description = "Build the terramate binary"
+env = { CGO_ENABLED = "0" }
+run = "go build --ldflags '-extldflags \"-static\"' -o bin/terramate ./cmd/terramate"
+
+[tasks."build:terramate-ls"]
+description = "Build the terramate-ls binary"
+env = { CGO_ENABLED = "0" }
+run = "go build --ldflags '-extldflags \"-static\"' -o bin/terramate-ls ./cmd/terramate-ls"
+
+[tasks."build:pprof"]
+description = "Build terramate with profiler"
+depends = ["build:pprof:terramate"]
+
+[tasks."build:pprof:terramate"]
+description = "Build the terramate binary with profiler"
+env = { CGO_ENABLED = "0" }
+run = "go build --ldflags '-extldflags \"-static\"' -tags profiler -o bin/terramate ./cmd/terramate"
+
+[tasks."build:tgdeps"]
+description = "Build tgdeps"
+env = { CGO_ENABLED = "0" }
+run = "go build --ldflags '-extldflags \"-static\"' -o bin/tgdeps ./cmd/tgdeps"
+
+[tasks.install]
+description = "Install terramate + terramate-ls on the host"
+depends = ["install:terramate", "install:terramate-ls"]
+
+[tasks."install:terramate"]
+description = "Install the terramate binary"
+env = { CGO_ENABLED = "0" }
+run = "go install --ldflags '-extldflags \"-static\"' ./cmd/terramate"
+
+[tasks."install:terramate-ls"]
+description = "Install the terramate-ls binary"
+env = { CGO_ENABLED = "0" }
+run = "go install --ldflags '-extldflags \"-static\"' ./cmd/terramate-ls"
+
+[tasks."install:pprof"]
+description = "Install terramate with profiler"
+depends = ["install:pprof:terramate"]
+
+[tasks."install:pprof:terramate"]
+description = "Install the terramate binary with profiler"
+env = { CGO_ENABLED = "0" }
+run = "go install --ldflags '-extldflags \"-static\"' -tags profiler ./cmd/terramate"
+
+[tasks."install:tgdeps"]
+description = "Install tgdeps"
+env = { CGO_ENABLED = "0" }
+run = "go install --ldflags '-extldflags \"-static\"' ./cmd/tgdeps"
+
+[tasks.generate]
+description = "Regenerate files from .tm templates"
+run = "./bin/terramate generate"
+
+[tasks.fmt]
+description = "Format go code"
+run = "go run golang.org/x/tools/cmd/goimports@v0.1.7 -w ."
+
+[tasks."lint:install"]
+description = "Install the linter"
+run = "go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.6.1"
+
+[tasks."lint:all"]
+description = "Lint all code"
+run = "golangci-lint run ./..."
+
+[tasks.mod]
+description = "Tidy up go modules"
+run = "go mod tidy"
+
+[tasks."mod:check"]
+description = "Check go modules are tidy"
+run = "./hack/mod-check"
+
+[tasks.license]
+description = "Add license headers to code"
+run = "go run github.com/google/addlicense@v1.0.0 -l mpl -s=only -ignore 'docs/**' -ignore '.tmtriggers/**' -ignore '**/*.tf' -c \"Terramate GmbH\" ."
+
+[tasks."license:check"]
+description = "Check code is licensed properly"
+run = "go run github.com/google/addlicense@v1.0.0 -l mpl -s=only -ignore 'docs/**' -ignore '.tmtriggers/**' -ignore '**/*.tf' --check ."
+
+[tasks."pin-gha"]
+description = "Pin github actions to SHAs"
+run = "npm exec --yes pin-github-action@3.5.1 -- ./.github/workflows/*.yml"
+
+[tasks.coverage]
+description = "Generate coverage report"
+run = "go test -count=1 -coverprofile=coverage.txt -coverpkg=./... ./..."
+
+[tasks."coverage:show"]
+description = "Generate coverage report and open it in the browser"
+depends = ["coverage"]
+run = "go tool cover -html=coverage.txt"
+
+[tasks."test:testserver"]
+description = "Build bin/testserver"
+run = "go build -o bin/testserver ./cloud/testserver/cmd/testserver"
+
+[tasks."test:helper"]
+description = "Build the helper binary"
+run = "go build -o bin/helper ./e2etests/cmd/helper"
+
+[tasks."test:build"]
+description = "Build a test binary -- not static, telemetry sent to localhost, etc"
+depends = ["test:testserver"]
+run = "go build -tags localhostEndpoints -o bin/test-terramate ./cmd/terramate"
+
+[tasks.test]
+description = "Run the test suite"
+depends = ["test:helper", "build"]
+run = '''
+tempdir=$(./bin/helper tempdir)
+TM_TEST_ROOT_TEMPDIR=$tempdir ./bin/terramate run --no-recursive -- go test -race -count=1 -timeout 30m ./... || ./bin/helper rm $tempdir
+'''
+
+[tasks."test:sync"]
+description = "Run the cloud preview sync test"
+depends = ["test:helper", "build"]
+run = '''
+tempdir=$(./bin/helper tempdir)
+TMC_API_HOST=api.stg.terramate.io \
+TM_TEST_ROOT_TEMPDIR=$tempdir \
+TM_CLOUD_ORGANIZATION=test \
+GITHUB_TOKEN=$(cat ../my_github_token.txt) \
+NO_COLOR=1 \
+CI=1 \
+./bin/terramate script run --tags golang --parallel=10 preview || ./bin/helper rm $tempdir
+'''
+
+[tasks."test:interop"]
+description = "Run interop tests"
+run = "TM_CLOUD_ORGANIZATION=${ORG:-test} TMC_API_HOST=${BACKEND_HOST:-api.stg.terramate.io} go test -v -count=1 -tags interop ./e2etests/cloud/interop/..."
+
+[tasks."test:docker"]
+description = "Run tests within docker"
+run = "docker build --progress=plain --rm -f containers/test/Dockerfile ."
+
+[tasks."test:fuzz:eval"]
+description = "Fuzz partial eval"
+run = "go test ./hcl/eval -fuzz=FuzzPartialEval"
+
+[tasks."test:fuzz:fmt"]
+description = "Fuzz formatting"
+run = "go test ./hcl -fuzz=FuzzFormatMultiline"
+
+[tasks."test:fuzz:tokens-for-expr"]
+description = "Fuzz ast.TokensForExpression"
+run = "go test ./hcl/ast -fuzz=FuzzTokensForExpression"
+
+[tasks.bench]
+description = "Run all benchmarks on the given 'pkg', or a specific benchmark"
+run = "go test -bench=${NAME:-.} -count=5 -benchtime=${TIME:-1s} -benchmem ${PKG:-.}"
+
+[tasks."bench:all"]
+description = "Benchmark all packages"
+run = '''
+for benchfile in $(find ${DIR:-.} | grep _bench_); do
+  go test -bench=. -benchtime=${TIME:-1s} -benchmem $(dirname $benchfile)
+done
+'''
+
+[tasks."bench:check"]
+description = "Check benchmark regressions"
+run = '''
+go run github.com/madlambda/benchcheck/cmd/benchcheck@743137fbfd827958b25ab6b13fa1180e0e933eb1 \
+  -mod ${NAME:-github.com/terramate-io/terramate} -pkg ${PKG:-./...} \
+  -go-test-flags "-benchmem,-count=${COUNT:-20},-run=Bench,-parallel=${PARALLEL:-1}" \
+  -old ${OLD:-main} -new ${NEW:-$(git rev-parse HEAD)} \
+  -check allocs/op=${ALLOCDELTA:-+20%} \
+  -check time/op=${TIMEDELTA:-+20%}
+'''
+
+[tasks."bench:cleanup"]
+description = "Cleanup artifacts produced by benchmarking"
+run = '''
+rm -f *.prof
+rm -f *.test
+'''
+
+[tasks."release:dry-run"]
+description = "Dry run of the release process"
+run = "goreleaser release --snapshot --rm-dist"
+
+[tasks.release]
+description = "Generate a terramate release"
+run = "goreleaser release --rm-dist --key $GORELEASER_KEY"
+
+[tasks."cloud:sync:ok"]
+description = "Sync the Terramate example stack with a success status"
+depends = ["build", "test:helper"]
+run = '''
+./bin/terramate --log-level=info \
+  --disable-check-git-untracked \
+  --disable-check-git-uncommitted \
+  --tags test \
+  run --sync-deployment -- \
+  $(pwd)/bin/helper true
+'''
+
+[tasks."cloud:sync:failed"]
+description = "Sync the Terramate example stack with a failed status"
+depends = ["build", "test:helper"]
+run = '''
+./bin/terramate --log-level=info \
+  --disable-check-git-untracked \
+  --disable-check-git-uncommitted \
+  --tags test \
+  run --sync-deployment -- \
+  $(pwd)/bin/helper false
+'''
+
+[tasks.graph2png]
+description = "Render the stack run-graph to graph.png (requires graphviz)"
+run = '''
+./bin/terramate experimental run-graph | dot -Tpng > graph.png
+echo "check the image: graph.png"
+'''
+
+[tasks."release:tag"]
+description = "Create a new release tag"
+run = '''
+version=${VERSION:-v$(cat VERSION)}
+git tag -s -a "$version" -m "Release $version"
+git push origin "$version"
+'''
+
+[tasks.clean]
+description = "Remove build artifacts"
+run = "rm -rf bin/*"

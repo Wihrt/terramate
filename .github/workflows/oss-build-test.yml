@@ -1,0 +1,31 @@
+# Copyright 2026 Terramate GmbH
+# SPDX-License-Identifier: MPL-2.0
+
+name: OSS / Build & Test
+
+on:
+  workflow_call:
+
+jobs:
+  build_test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # pin@v4
+        with:
+          fetch-depth: 0
+
+      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # pin@v4.2.0
+        with:
+          install: true
+
+      - name: mise run build
+        run: mise run build
+
+      - name: mise run generate (fail on drift)
+        run: mise run generate && git diff --exit-code
+
+      - name: mise run test
+        run: mise run test
