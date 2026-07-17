@@ -72,4 +72,4 @@ changelog:
 release:
   prerelease: auto
   name_template: >-
-    {{ if regexMatch `-dev\.\d+$` .Tag }}Development build {{ .Tag }}{{ else }}{{ .Tag }}{{ end }}
+    {{ if contains .Tag "-dev." }}Development build {{ .Tag }}{{ else }}{{ .Tag }}{{ end }}
