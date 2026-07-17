@@ -4,7 +4,7 @@ tag_prefix = "v"
 branch_whitelist = ["main"]
 ignore_merge_commits = true
 from_latest_tag = true
-disable_changelog = true
+disable_changelog = false
 
 # Default profile: automatic "dev" pre-release path.
 # {{version}} is the bare semver (no "v"), matching VERSION's existing convention.
@@ -21,3 +21,6 @@ post_bump_hooks = [
     "git push origin HEAD:refs/heads/main",
     "git push origin {{version_tag}}",
 ]
+
+[changelog]
+template = "full_hash"
