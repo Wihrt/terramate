@@ -17,7 +17,7 @@ jobs:
     uses: ./.github/workflows/oss-build-test.yml
 
   publish_dev:
-    name: Publish dev binaries
+    name: Publish dev release
     needs: build_test
     runs-on: ubuntu-latest
     permissions:
@@ -27,26 +27,36 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # v5
+      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
         with:
-          go-version-file: 'go.mod'
-          check-latest: true
+          install: true
 
-      - name: Run GoReleaser (snapshot build, no publish to GitHub by goreleaser itself)
-        uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
-        with:
-          distribution: goreleaser
-          version: latest
-          args: release --snapshot --clean --skip=publish
+      - name: configure git identity for the bump commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Update floating dev pre-release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
-        with:
-          tag_name: dev
-          name: "Development build (main@${{ github.sha }})"
-          prerelease: true
-          make_latest: false
-          files: |
-            dist/*.tar.gz
-            dist/*.zip
-            dist/checksums.txt
+      - name: check whether there is anything to bump
+        id: check
+        run: |
+          if mise exec -- cog bump --dry-run --auto --pre "dev.*"; then
+            echo "should_bump=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_bump=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: cog bump (dev pre-release)
+        if: steps.check.outputs.should_bump == 'true'
+        run: mise exec -- cog bump --auto --pre "dev.*"
+
+      - name: generate release notes
+        if: steps.check.outputs.should_bump == 'true'
+        run: |
+          tag=$(git describe --tags --exact-match)
+          mise exec -- cog changelog --at "$tag" > /tmp/notes.md
+
+      - name: goreleaser release
+        if: steps.check.outputs.should_bump == 'true'
+        run: mise exec -- goreleaser release --clean --release-notes=/tmp/notes.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
