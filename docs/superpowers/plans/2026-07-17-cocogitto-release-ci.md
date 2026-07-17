@@ -38,13 +38,15 @@ to:
 disable_changelog = false
 ```
 
-Then add a new `[changelog]` section directly after the top-level keys (before `pre_bump_hooks`):
+Then add a new `[changelog]` section at the **end of the file**, after `[bump_profiles.release]`:
 ```toml
 [changelog]
 template = "full_hash"
 ```
 
-Full resulting top section of `cog.toml`:
+**Why the end, not right after the top-level keys:** TOML's bare `key = value` lines always belong to whichever `[table]` was most recently opened. `pre_bump_hooks`/`post_bump_hooks` (the default-profile hooks) are root-level keys with no `[table]` header of their own — they rely on appearing *before* any `[table]` section. Inserting `[changelog]` above them would silently reparent them under `[changelog]` instead of the root table, breaking the default bump profile. Appending `[changelog]` after `[bump_profiles.release]` (the last existing section) avoids this — verified with `python3 -c "import tomllib; ..."` (parsing an early-`[changelog]` placement confirms `pre_bump_hooks` ends up nested under `changelog` instead of at the root).
+
+Resulting top section of `cog.toml` (unchanged below this point except for the new `[changelog]` section appended at the very end, after the existing `[bump_profiles.release]`):
 ```toml
 #:schema https://docs.cocogitto.io/cog-schema.json
 
@@ -54,14 +56,16 @@ ignore_merge_commits = true
 from_latest_tag = true
 disable_changelog = false
 
-[changelog]
-template = "full_hash"
-
 # Default profile: automatic "dev" pre-release path.
 # {{version}} is the bare semver (no "v"), matching VERSION's existing convention.
 # {{version_tag}} includes tag_prefix -- this is the actual git ref to push.
 pre_bump_hooks = ["echo -n {{version}} > VERSION"]
 post_bump_hooks = ["git push origin {{version_tag}}"]
+
+# ... [bump_profiles.release] unchanged ...
+
+[changelog]
+template = "full_hash"
 ```
 
 - [ ] **Step 2: Verify the config parses and the template applies**
