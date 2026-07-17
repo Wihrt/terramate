@@ -17,7 +17,7 @@ jobs:
     uses: ./.github/workflows/oss-build-test.yml
 
   publish_dev:
-    name: Publish dev binaries
+    name: Publish dev release
     needs: build_test
     runs-on: ubuntu-latest
     permissions:
@@ -27,26 +27,57 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # v5
+      - uses: jdx/mise-action@e6a8b3978addb5a52f2b4cd9d91eafa7f0ab959d # v4.2.0
         with:
-          go-version-file: 'go.mod'
-          check-latest: true
+          install: true
 
-      - name: Run GoReleaser (snapshot build, no publish to GitHub by goreleaser itself)
-        uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
-        with:
-          distribution: goreleaser
-          version: latest
-          args: release --snapshot --clean --skip=publish
+      - name: configure git identity for the bump commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Update floating dev pre-release
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
-        with:
-          tag_name: dev
-          name: "Development build (main@${{ github.sha }})"
-          prerelease: true
-          make_latest: false
-          files: |
-            dist/*.tar.gz
-            dist/*.zip
-            dist/checksums.txt
+      - name: check whether there is anything to bump
+        id: check
+        run: |
+          # `cog bump --dry-run` exits 0 both when there's nothing to bump (prints a
+          # "No conventional commits..." message) and when there is (prints a bare
+          # version string like "vX.Y.Z-dev.N") — exit code alone cannot distinguish
+          # the two. Only a genuine error (bad config, git failure, ...) exits non-zero,
+          # and `-e` below lets that fail the step instead of being swallowed as
+          # should_bump=false. So we gate on the captured stdout content instead.
+          output=$(mise exec -- cog bump --dry-run --auto --pre "dev.*")
+          echo "$output"
+          if echo "$output" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+'; then
+            echo "should_bump=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_bump=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # This job intentionally uses the default GITHUB_TOKEN (never a PAT/GitHub App
+      # token) for the whole cog bump -> goreleaser sequence below. Pushes made with
+      # GITHUB_TOKEN do not trigger other GitHub Actions workflows, which is what
+      # prevents oss-release.yml's tag-push trigger from double-firing on the dev tags
+      # pushed here. Swapping to a privileged token would silently break that invariant.
+
+      # NOTE: cog bump's post_bump_hooks (cog.toml) push the new tag to the remote
+      # immediately, before goreleaser release runs below. If goreleaser then fails,
+      # the tag exists with no corresponding GitHub Release, and since the tag already
+      # exists a later re-run with no new commits will no-op instead of retrying — that
+      # -dev.N release stays unpublished until the next real commit. Known, accepted
+      # tradeoff (see plan's Global Constraints: post_bump_hooks must not change).
+      - name: cog bump (dev pre-release)
+        if: steps.check.outputs.should_bump == 'true'
+        run: mise exec -- cog bump --auto --pre "dev.*"
+
+      - name: generate release notes
+        if: steps.check.outputs.should_bump == 'true'
+        run: |
+          tag=$(git describe --tags --exact-match)
+          mise exec -- cog changelog --at "$tag" > /tmp/notes.md
+
+      - name: goreleaser release
+        if: steps.check.outputs.should_bump == 'true'
+        run: mise exec -- goreleaser release --clean --release-notes=/tmp/notes.md
+        env:
+          # Default GITHUB_TOKEN (not a PAT/GitHub App) — see loop-prevention note above.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -21,3 +21,6 @@ post_bump_hooks = [
     "git push origin HEAD:refs/heads/main",
     "git push origin {{version_tag}}",
 ]
+
+[changelog]
+template = "full_hash"

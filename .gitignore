@@ -28,3 +28,4 @@ cosign.pub
 # Claude
 .claude/
 CLAUDE.md
+.worktrees/
