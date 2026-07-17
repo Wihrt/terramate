@@ -17,8 +17,14 @@ builds:
       - -s -w -extldflags "-static"
     goos:
       - linux
+      - darwin
+      - windows
     goarch:
       - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
 
   - id: terramate-ls
     main: ./cmd/terramate-ls
@@ -31,8 +37,14 @@ builds:
       - -s -w -extldflags "-static"
     goos:
       - linux
+      - darwin
+      - windows
     goarch:
       - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
 
 archives:
   - id: default
@@ -41,6 +53,10 @@ archives:
       - terramate-ls
     formats:
       - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
 
@@ -55,5 +71,3 @@ changelog:
 
 release:
   prerelease: auto
-  name_template: >-
-    {{ if regexMatch `-dev\.\d+$` .Tag }}Development build {{ .Tag }}{{ else }}{{ .Tag }}{{ end }}
