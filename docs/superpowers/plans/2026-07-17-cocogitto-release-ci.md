@@ -236,12 +236,32 @@ Replace the entire `publish_dev` job in `.github/workflows/oss-main.yml` (curren
       - name: check whether there is anything to bump
         id: check
         run: |
-          if mise exec -- cog bump --dry-run --auto --pre "dev.*"; then
+          # `cog bump --dry-run` exits 0 both when there's nothing to bump (prints a
+          # "No conventional commits..." message) and when there is (prints a bare
+          # version string like "vX.Y.Z-dev.N") — exit code alone cannot distinguish
+          # the two. Only a genuine error (bad config, git failure, ...) exits non-zero,
+          # and `-e` below lets that fail the step instead of being swallowed as
+          # should_bump=false. So we gate on the captured stdout content instead.
+          output=$(mise exec -- cog bump --dry-run --auto --pre "dev.*")
+          echo "$output"
+          if echo "$output" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+'; then
             echo "should_bump=true" >> "$GITHUB_OUTPUT"
           else
             echo "should_bump=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # This job intentionally uses the default GITHUB_TOKEN (never a PAT/GitHub App
+      # token) for the whole cog bump -> goreleaser sequence below. Pushes made with
+      # GITHUB_TOKEN do not trigger other GitHub Actions workflows, which is what
+      # prevents oss-release.yml's tag-push trigger from double-firing on the dev tags
+      # pushed here. Swapping to a privileged token would silently break that invariant.
+
+      # NOTE: cog bump's post_bump_hooks (cog.toml) push the new tag to the remote
+      # immediately, before goreleaser release runs below. If goreleaser then fails,
+      # the tag exists with no corresponding GitHub Release, and since the tag already
+      # exists a later re-run with no new commits will no-op instead of retrying — that
+      # -dev.N release stays unpublished until the next real commit. Known, accepted
+      # tradeoff (see plan's Global Constraints: post_bump_hooks must not change).
       - name: cog bump (dev pre-release)
         if: steps.check.outputs.should_bump == 'true'
         run: mise exec -- cog bump --auto --pre "dev.*"
@@ -256,10 +276,13 @@ Replace the entire `publish_dev` job in `.github/workflows/oss-main.yml` (curren
         if: steps.check.outputs.should_bump == 'true'
         run: mise exec -- goreleaser release --clean --release-notes=/tmp/notes.md
         env:
+          # Default GITHUB_TOKEN (not a PAT/GitHub App) — see loop-prevention note above.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-This drops the old `goreleaser-action`/`softprops/action-gh-release` steps and the floating `dev` tag entirely. `cog bump --dry-run` exits non-zero when there are no conventional commits to bump since the last tag (e.g. a `chore:`-only push) — `should_bump` gates every following step so those pushes succeed as a no-op instead of failing the job.
+This drops the old `goreleaser-action`/`softprops/action-gh-release` steps and the floating `dev` tag entirely. `should_bump` gates every following step so `chore:`-only pushes succeed as a no-op instead of failing the job.
+
+**Why the check step gates on stdout content, not exit code:** empirically (verified against cocogitto 7.0.0 in throwaway sandboxes), `cog bump --dry-run --auto --pre "dev.*"` exits `0` in *both* the "nothing to bump" case (stdout: `No conventional commits for your repository that required a bump...`) and the "something to bump" case (stdout: a bare version string like `v0.1.0-dev.1`). Only a genuine error — e.g. a malformed `cog.toml` — exits non-zero (stdout: `Error: ...`). An earlier draft of this step assumed dry-run exits non-zero when there's nothing to bump; that assumption is false, and it had two consequences: a `chore:`-only push would be misread as "something to bump," proceed to the real `cog bump` (which also exits 0 without creating a tag), and then fail at the `git describe --tags --exact-match` step with no tag to describe — reddening the job on routine pushes. Conversely a genuine config/git error would be silently mapped to `should_bump=false`, going green while swallowing a real failure. The corrected step captures dry-run's stdout and greps for a leading `vX.Y.Z` version string to distinguish "something to bump" from "nothing to bump," while relying on the shell's `-e` (GitHub Actions runs steps under `bash -eo pipefail`) to let a genuine non-zero exit fail the step outright instead of being swallowed.
 
 - [ ] **Step 2: Verify workflow YAML is well-formed**
 
