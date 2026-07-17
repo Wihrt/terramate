@@ -63,12 +63,6 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
-changelog:
-  sort: asc
-  filters:
-    exclude:
-      - "^chore:"
-
 release:
   prerelease: auto
   name_template: >-
