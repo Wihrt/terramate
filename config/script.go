@@ -5,11 +5,8 @@ package config
 
 import (
 	"fmt"
-	"strings"
-	"time"
 
 	hhcl "github.com/terramate-io/hcl/v2"
-	"github.com/terramate-io/terramate/cloud/api/preview"
 	"github.com/terramate-io/terramate/errors"
 	"github.com/terramate-io/terramate/hcl"
 	"github.com/terramate-io/terramate/hcl/eval"
@@ -37,16 +34,9 @@ const MaxScriptDescRunes = 1000
 
 // ScriptCmdOptions represents optional parameters for a script command
 type ScriptCmdOptions struct {
-	CloudSyncDeployment    bool
-	CloudSyncDriftStatus   bool
-	CloudSyncPreview       bool
-	CloudSyncLayer         preview.Layer
-	CloudTerraformPlanFile string
-	CloudTofuPlanFile      string
-	CloudPlanRenderTimeout time.Duration
-	UseTerragrunt          bool
-	EnableSharing          bool
-	MockOnFail             bool
+	UseTerragrunt bool
+	EnableSharing bool
+	MockOnFail    bool
 }
 
 // ScriptCmd represents an evaluated script command
@@ -191,37 +181,6 @@ func EvalScript(evalctx *eval.Context, script hcl.Script) (Script, error) {
 		evaluatedScript.Jobs = append(evaluatedScript.Jobs, evaluatedJob)
 	}
 
-	// Validate option constraints
-	var cmdsWithCloudSyncDeployment []string
-	for jobIdx, job := range evaluatedScript.Jobs {
-		for cmdIdx, cmd := range job.Commands() {
-			if cmd.Options != nil && cmd.Options.CloudSyncDeployment {
-				cmdsWithCloudSyncDeployment = append(cmdsWithCloudSyncDeployment, fmt.Sprintf("job:%d.%d", jobIdx, cmdIdx))
-			}
-		}
-	}
-	if len(cmdsWithCloudSyncDeployment) > 1 {
-		errs.Append(errors.E(ErrScriptInvalidCmdOptions,
-			"only a single command per script may have 'sync_deployment' enabled, but was enabled by: %v",
-			strings.Join(cmdsWithCloudSyncDeployment, " "),
-		))
-	}
-
-	var cmdsWithCloudSyncPreview []string
-	for jobIdx, job := range evaluatedScript.Jobs {
-		for cmdIdx, cmd := range job.Commands() {
-			if cmd.Options != nil && cmd.Options.CloudSyncPreview {
-				cmdsWithCloudSyncPreview = append(cmdsWithCloudSyncPreview, fmt.Sprintf("job:%d.%d", jobIdx, cmdIdx))
-			}
-		}
-	}
-	if len(cmdsWithCloudSyncPreview) > 1 {
-		errs.Append(errors.E(ErrScriptInvalidCmdOptions,
-			"only a single command per script may have 'sync_preview' enabled, but was enabled by: %v",
-			strings.Join(cmdsWithCloudSyncDeployment, " "),
-		))
-	}
-
 	if err := errs.AsError(); err != nil {
 		return Script{}, err
 	}
@@ -308,12 +267,6 @@ func unmarshalScriptJobCommand(cmdValues cty.Value, expr hhcl.Expression) (*Scri
 			if elem.Type().IsObjectType() {
 				var err error
 				r.Options, err = unmarshalScriptCommandOptions(elem, expr)
-				if r.Options != nil &&
-					r.Options.CloudSyncPreview &&
-					(r.Options.CloudSyncDriftStatus || r.Options.CloudSyncDeployment) {
-					errs.Append(errors.E(ErrScriptInvalidCmdOptions, expr.Range(),
-						"sync_preview cannot be used with sync_deployment or sync_drift_status"))
-				}
 				errs.Append(err)
 			} else {
 				errs.Append(errors.E(ErrScriptInvalidTypeCommand, expr.Range(),
@@ -353,78 +306,6 @@ func unmarshalScriptCommandOptions(obj cty.Value, expr hhcl.Expression) (*Script
 		}
 
 		switch ks := k.AsString(); ks {
-		case "sync_deployment":
-			fallthrough
-		case "cloud_sync_deployment":
-			if v.Type() != cty.Bool {
-				errs.Append(errors.E(ErrScriptInvalidCmdOptions, expr.Range(),
-					"command option '%s' must be a bool, but has type %s",
-					ks, v.Type().FriendlyName()))
-				break
-			}
-			r.CloudSyncDeployment = v.True()
-
-		case "sync_drift_status":
-			fallthrough
-		case "cloud_sync_drift_status":
-			if v.Type() != cty.Bool {
-				errs.Append(errors.E(ErrScriptInvalidCmdOptions, expr.Range(),
-					"command option '%s' must be a bool, but has type %s",
-					ks, v.Type().FriendlyName()))
-				break
-			}
-			r.CloudSyncDriftStatus = v.True()
-		case "sync_preview":
-			fallthrough
-		case "cloud_sync_preview":
-			if v.Type() != cty.Bool {
-				errs.Append(errors.E(ErrScriptInvalidCmdOptions, expr.Range(),
-					"command option '%s' must be a bool, but has type %s",
-					ks, v.Type().FriendlyName()))
-				break
-			}
-			r.CloudSyncPreview = v.True()
-
-		case "layer":
-			fallthrough
-		case "sync_layer":
-			fallthrough
-		case "cloud_sync_layer":
-			if v.Type() != cty.String {
-				errs.Append(errors.E(ErrScriptInvalidCmdOptions, expr.Range(),
-					"command option '%s' must be a string, but has type %s",
-					ks, v.Type().FriendlyName()))
-				break
-			}
-
-			r.CloudSyncLayer = preview.Layer(v.AsString())
-			if r.CloudSyncLayer.Validate() != nil {
-				errs.Append(errors.E(ErrScriptInvalidCmdOptions, expr.Range(),
-					"command option '%s' must contain only alphanumeric characters and hyphens", ks))
-			}
-
-		case "terraform_plan_file":
-			fallthrough
-		case "sync_terraform_plan_file":
-			fallthrough
-		case "cloud_sync_terraform_plan_file":
-			if v.Type() != cty.String {
-				errs.Append(errors.E(ErrScriptInvalidCmdOptions, expr.Range(),
-					"command option '%s' must be a string, but has type %s",
-					ks, v.Type().FriendlyName()))
-				break
-			}
-			r.CloudTerraformPlanFile = v.AsString()
-
-		case "tofu_plan_file":
-			if v.Type() != cty.String {
-				errs.Append(errors.E(ErrScriptInvalidCmdOptions, expr.Range(),
-					"command option '%s' must be a string, but has type %s",
-					ks, v.Type().FriendlyName()))
-				break
-			}
-			r.CloudTofuPlanFile = v.AsString()
-
 		case "terragrunt":
 			if v.Type() != cty.Bool {
 				errs.Append(errors.E(ErrScriptInvalidCmdOptions, expr.Range(),
@@ -452,28 +333,8 @@ func unmarshalScriptCommandOptions(obj cty.Value, expr hhcl.Expression) (*Script
 			}
 			r.MockOnFail = v.True()
 
-		case "plan_render_timeout":
-			if v.Type() != cty.Number {
-				errs.Append(errors.E(ErrScriptInvalidCmdOptions, expr.Range(),
-					"command option '%s' must be a number, but has type %s",
-					ks, v.Type().FriendlyName()))
-				break
-			}
-			timeoutSec, _ := v.AsBigFloat().Int64()
-			r.CloudPlanRenderTimeout = time.Duration(timeoutSec) * time.Second
-
 		default:
 			errs.Append(errors.E(ErrScriptInvalidCmdOptions, expr.Range(), "unknown command option: %s", ks))
-		}
-
-		if r.CloudSyncDeployment && r.CloudSyncDriftStatus {
-			errs.Append(errors.E(ErrScriptInvalidCmdOptions, expr.Range(),
-				"'sync_deployment' and 'sync_drift_status' are conflicting options in the same command"))
-		}
-
-		if r.CloudTerraformPlanFile != "" && r.CloudTofuPlanFile != "" {
-			errs.Append(errors.E(ErrScriptInvalidCmdOptions, expr.Range(),
-				"'terraform_plan_file' and 'tofu_plan_file' are conflicting options in the same command"))
 		}
 	}
 

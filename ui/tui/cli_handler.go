@@ -6,14 +6,9 @@ package tui
 import (
 	"context"
 	"fmt"
-	"time"
 
-	"github.com/terramate-io/terramate/cloud/api/status"
 	"github.com/terramate-io/terramate/commands"
 	clonecmd "github.com/terramate-io/terramate/commands/clone"
-	clouddriftshowcmd "github.com/terramate-io/terramate/commands/cloud/drift/show"
-	cloudinfocmd "github.com/terramate-io/terramate/commands/cloud/info"
-	logincmd "github.com/terramate-io/terramate/commands/cloud/login"
 	compcmd "github.com/terramate-io/terramate/commands/completions"
 	componentcreatecmd "github.com/terramate-io/terramate/commands/component/create"
 	generateoriginscmd "github.com/terramate-io/terramate/commands/debug/show/generate_origins"
@@ -40,7 +35,6 @@ import (
 	"github.com/terramate-io/terramate/engine"
 	"github.com/terramate-io/terramate/errors"
 	"github.com/terramate-io/terramate/safeguard"
-	"github.com/terramate-io/terramate/ui/tui/clitest"
 
 	"github.com/alecthomas/kong"
 
@@ -49,6 +43,9 @@ import (
 
 // ErrSetup is the error returned when the CLI fails to setup its initial values.
 const ErrSetup errors.Kind = "failed to setup Terramate"
+
+// ErrSafeguardKeywordValidation indicates the safeguard keywords validation failed.
+const ErrSafeguardKeywordValidation errors.Kind = "failed to validate safeguard keywords"
 
 func handleRootVersionFlagAlone(parsedSpec any, _ *CLI) (name string, val any, run func(c *CLI, value any) error, isset bool) {
 	p := AsFlagSpec[FlagSpec](parsedSpec)
@@ -96,22 +93,6 @@ func SelectCommand(ctx context.Context, c *CLI, command string, flags any) (cmd 
 		return &compcmd.Spec{
 			Installer: parsedArgs.InstallCompletions,
 			KongCtx:   kctx,
-		}, nil
-
-	case "experimental cloud login": // Deprecated: use cloud login
-		fallthrough
-	case "cloud login":
-		if parsedArgs.Cloud.Login.Github {
-			return &logincmd.GithubSpec{
-				Verbosity: parsedArgs.Verbose,
-			}, nil
-		} else if parsedArgs.Cloud.Login.SSO {
-			return &logincmd.SSOSpec{
-				Verbosity: parsedArgs.Verbose,
-			}, nil
-		}
-		return &logincmd.GoogleSpec{
-			Verbosity: parsedArgs.Verbose,
 		}, nil
 
 	case "fmt", "fmt <files>":
@@ -173,25 +154,8 @@ func SelectCommand(ctx context.Context, c *CLI, command string, flags any) (cmd 
 		c.SetCommandAnalytics("list",
 			tel.BoolFlag("filter-changed", parsedArgs.Changed),
 			tel.BoolFlag("filter-tags", len(parsedArgs.Tags) != 0),
-			tel.StringFlag("filter-status", parsedArgs.List.Status),
-			tel.StringFlag("filter-drift-status", parsedArgs.List.DriftStatus),
-			tel.StringFlag("filter-deployment-status", parsedArgs.List.DeploymentStatus),
-			tel.StringFlag("filter-target", parsedArgs.List.Target),
 			tel.BoolFlag("run-order", parsedArgs.List.RunOrder),
 		)
-		expStatus := parsedArgs.List.ExperimentalStatus
-		cloudStatus := parsedArgs.List.Status
-		if expStatus != "" && cloudStatus != "" {
-			return nil, errors.E("--experimental-status and --status cannot be used together")
-		}
-
-		var statusStr string
-		if cloudStatus != "" {
-			statusStr = cloudStatus
-		} else if expStatus != "" {
-			statusStr = expStatus
-		}
-
 		gitfilter, err := engine.NewGitFilter(
 			parsedArgs.Changed,
 			parsedArgs.GitChangeBase,
@@ -204,15 +168,9 @@ func SelectCommand(ctx context.Context, c *CLI, command string, flags any) (cmd 
 		return &listcmd.Spec{
 			GitFilter: gitfilter,
 			Reason:    parsedArgs.List.Why,
-			Target:    parsedArgs.List.Target,
-			StatusFilters: listcmd.StatusFilters{
-				StackStatus:      statusStr,
-				DeploymentStatus: parsedArgs.List.DeploymentStatus,
-				DriftStatus:      parsedArgs.List.DriftStatus,
-			},
-			RunOrder: parsedArgs.List.RunOrder,
-			Tags:     parsedArgs.Tags,
-			NoTags:   parsedArgs.NoTags,
+			RunOrder:  parsedArgs.List.RunOrder,
+			Tags:      parsedArgs.Tags,
+			NoTags:    parsedArgs.NoTags,
 			DependencyFilters: engine.DependencyFilters{
 				IncludeOutputDependencies: parsedArgs.List.IncludeOutputDependencies,
 				OnlyOutputDependencies:    parsedArgs.List.OnlyOutputDependencies,
@@ -293,16 +251,6 @@ func SelectCommand(ctx context.Context, c *CLI, command string, flags any) (cmd 
 		c.SetCommandAnalytics("run",
 			tel.BoolFlag("filter-changed", parsedArgs.Changed),
 			tel.BoolFlag("filter-tags", len(parsedArgs.Tags) != 0),
-			tel.StringFlag("filter-status", parsedArgs.Run.Status),
-			tel.StringFlag("filter-drift-status", parsedArgs.Run.DriftStatus),
-			tel.StringFlag("filter-deployment-status", parsedArgs.Run.DeploymentStatus),
-			tel.StringFlag("target", parsedArgs.Run.Target),
-			tel.BoolFlag("sync-deployment", parsedArgs.Run.SyncDeployment),
-			tel.BoolFlag("sync-drift", parsedArgs.Run.SyncDriftStatus),
-			tel.BoolFlag("sync-preview", parsedArgs.Run.SyncPreview),
-			tel.StringFlag("terraform-planfile", parsedArgs.Run.TerraformPlanFile),
-			tel.StringFlag("tofu-planfile", parsedArgs.Run.TofuPlanFile),
-			tel.StringFlag("layer", string(parsedArgs.Run.Layer)),
 			tel.BoolFlag("terragrunt", parsedArgs.Run.Terragrunt),
 			tel.BoolFlag("reverse", parsedArgs.Run.Reverse),
 			tel.BoolFlag("parallel", parsedArgs.Run.Parallel > 0),
@@ -333,27 +281,12 @@ func SelectCommand(ctx context.Context, c *CLI, command string, flags any) (cmd 
 			ContinueOnError: parsedArgs.Run.ContinueOnError,
 			Parallel:        parsedArgs.Run.Parallel,
 			NoRecursive:     parsedArgs.Run.NoRecursive,
-			SyncDeployment:  parsedArgs.Run.SyncDeployment,
-			SyncPreview:     parsedArgs.Run.SyncPreview,
-			SyncDriftStatus: parsedArgs.Run.SyncDriftStatus,
-			StatusFilters: runcmd.StatusFilters{
-				StackStatus:      parsedArgs.Run.Status,
-				DriftStatus:      parsedArgs.Run.DriftStatus,
-				DeploymentStatus: parsedArgs.Run.DeploymentStatus,
-			},
-			DebugPreviewURL:   parsedArgs.Run.DebugPreviewURL,
-			TechnologyLayer:   parsedArgs.Run.Layer,
-			TerraformPlanFile: parsedArgs.Run.TerraformPlanFile,
-			TofuPlanFile:      parsedArgs.Run.TofuPlanFile,
-			PlanRenderTimeout: time.Duration(parsedArgs.Run.PlanRenderTimeout) * time.Second,
-			Terragrunt:        parsedArgs.Run.Terragrunt,
-			EnableSharing:     parsedArgs.Run.EnableSharing,
-			MockOnFail:        parsedArgs.Run.MockOnFail,
-			EvalCmd:           parsedArgs.Run.Eval,
-			Target:            parsedArgs.Run.Target,
-			FromTarget:        parsedArgs.Run.FromTarget,
-			Tags:              parsedArgs.Tags,
-			NoTags:            parsedArgs.NoTags,
+			Terragrunt:      parsedArgs.Run.Terragrunt,
+			EnableSharing:   parsedArgs.Run.EnableSharing,
+			MockOnFail:      parsedArgs.Run.MockOnFail,
+			EvalCmd:         parsedArgs.Run.Eval,
+			Tags:            parsedArgs.Tags,
+			NoTags:          parsedArgs.NoTags,
 			DependencyFilters: engine.DependencyFilters{
 				IncludeOutputDependencies: parsedArgs.Run.IncludeOutputDependencies,
 				OnlyOutputDependencies:    parsedArgs.Run.OnlyOutputDependencies,
@@ -368,19 +301,6 @@ func SelectCommand(ctx context.Context, c *CLI, command string, flags any) (cmd 
 				OnlyAllDependents:         parsedArgs.Run.OnlyAllDependents,
 				ExcludeAllDependents:      parsedArgs.Run.ExcludeAllDependents,
 			},
-		}, nil
-
-	case "cloud info":
-		c.SetCommandAnalytics("cloud-info")
-		return &cloudinfocmd.Spec{
-			Verbosity: parsedArgs.Verbose,
-		}, nil
-
-	case "cloud drift show":
-		c.SetCommandAnalytics("cloud-drift-show")
-		return &clouddriftshowcmd.Spec{
-			Verbosiness: parsedArgs.Verbose,
-			Target:      parsedArgs.Cloud.Drift.Show.Target,
 		}, nil
 
 	case "experimental eval":
@@ -414,47 +334,7 @@ func SelectCommand(ctx context.Context, c *CLI, command string, flags any) (cmd 
 		fallthrough
 	case "trigger":
 		c.SetCommandAnalytics("trigger")
-		gitfilter, err := engine.NewGitFilter(
-			parsedArgs.Changed,
-			parsedArgs.GitChangeBase,
-			nil,
-			nil,
-		)
-		if err != nil {
-			return nil, err
-		}
-		expStatus := parsedArgs.Trigger.ExperimentalStatus
-		cloudStatus := parsedArgs.Trigger.Status
-		if expStatus != "" && cloudStatus != "" {
-			return nil, errors.E("--experimental-status and --status cannot be used together")
-		}
-
-		var statusStr string
-		if cloudStatus != "" {
-			statusStr = cloudStatus
-		} else if expStatus != "" {
-			statusStr = expStatus
-		}
-
-		if statusStr == "" && parsedArgs.Trigger.DeploymentStatus == "" && parsedArgs.Trigger.DriftStatus == "" {
-			return nil, errors.E("trigger command expects either a stack path or a cloud filter such as --status")
-		}
-		if parsedArgs.Trigger.Recursive {
-			return nil, errors.E("cloud filters such as --status are incompatible with --recursive flag")
-		}
-		return &triggercmd.FilterSpec{
-			GitFilter: gitfilter,
-			StatusFilters: triggercmd.StatusFilters{
-				StackStatus:      statusStr,
-				DeploymentStatus: parsedArgs.Trigger.DeploymentStatus,
-				DriftStatus:      parsedArgs.Trigger.DriftStatus,
-			},
-			Change:       parsedArgs.Trigger.Change,
-			IgnoreChange: parsedArgs.Trigger.IgnoreChange,
-			Tags:         parsedArgs.Tags,
-			NoTags:       parsedArgs.NoTags,
-			Reason:       parsedArgs.Trigger.Reason,
-		}, nil
+		return nil, errors.E("trigger command expects a stack path")
 
 	case "experimental trigger <stack>": // Deprecated
 		parsedArgs.Trigger = parsedArgs.Experimental.Trigger
@@ -465,9 +345,6 @@ func SelectCommand(ctx context.Context, c *CLI, command string, flags any) (cmd 
 			tel.BoolFlag("change", parsedArgs.Trigger.Change),
 			tel.BoolFlag("ignore-change", parsedArgs.Trigger.IgnoreChange),
 		)
-		if parsedArgs.Trigger.Status != "" && parsedArgs.Trigger.Recursive {
-			return nil, errors.E("cloud filters such as --status are incompatible with --recursive flag")
-		}
 		return &triggercmd.PathSpec{
 			Change:       parsedArgs.Trigger.Change,
 			IgnoreChange: parsedArgs.Trigger.IgnoreChange,
@@ -510,10 +387,6 @@ func SelectCommand(ctx context.Context, c *CLI, command string, flags any) (cmd 
 		c.SetCommandAnalytics("script-run",
 			tel.BoolFlag("filter-changed", parsedArgs.Changed),
 			tel.BoolFlag("filter-tags", len(parsedArgs.Tags) != 0),
-			tel.StringFlag("filter-status", parsedArgs.Script.Run.Status),
-			tel.StringFlag("filter-drift-status", parsedArgs.Script.Run.DriftStatus),
-			tel.StringFlag("filter-deployment-status", parsedArgs.Script.Run.DeploymentStatus),
-			tel.StringFlag("target", parsedArgs.Script.Run.Target),
 			tel.BoolFlag("reverse", parsedArgs.Script.Run.Reverse),
 			tel.BoolFlag("parallel", parsedArgs.Script.Run.Parallel > 0),
 		)
@@ -540,8 +413,6 @@ func SelectCommand(ctx context.Context, c *CLI, command string, flags any) (cmd 
 			ContinueOnError: parsedArgs.Script.Run.ContinueOnError,
 			Parallel:        parsedArgs.Script.Run.Parallel,
 			NoRecursive:     parsedArgs.Script.Run.NoRecursive,
-			Target:          parsedArgs.Script.Run.Target,
-			FromTarget:      parsedArgs.Script.Run.FromTarget,
 			Tags:            parsedArgs.Tags,
 			NoTags:          parsedArgs.NoTags,
 			DependencyFilters: engine.DependencyFilters{
@@ -558,11 +429,6 @@ func SelectCommand(ctx context.Context, c *CLI, command string, flags any) (cmd 
 				OnlyAllDependents:         parsedArgs.Script.Run.OnlyAllDependents,
 				ExcludeAllDependents:      parsedArgs.Script.Run.ExcludeAllDependents,
 			},
-			StatusFilters: runcmd.StatusFilters{
-				StackStatus:      parsedArgs.Script.Run.Status,
-				DriftStatus:      parsedArgs.Script.Run.DriftStatus,
-				DeploymentStatus: parsedArgs.Script.Run.DeploymentStatus,
-			},
 			Labels: parsedArgs.Script.Run.Cmds,
 		}, nil
 
@@ -577,20 +443,10 @@ func SelectCommand(ctx context.Context, c *CLI, command string, flags any) (cmd 
 			return nil, err
 		}
 
-		statusFilters, err := status.ParseFilters(
-			parsedArgs.Debug.Show.Globals.Status,
-			parsedArgs.Debug.Show.Globals.DriftStatus,
-			parsedArgs.Debug.Show.Globals.DeploymentStatus,
-		)
-		if err != nil {
-			return nil, err
-		}
-
 		return &debugglobalscmd.Spec{
-			GitFilter:     gitfilter,
-			Tags:          parsedArgs.Tags,
-			NoTags:        parsedArgs.NoTags,
-			StatusFilters: statusFilters,
+			GitFilter: gitfilter,
+			Tags:      parsedArgs.Tags,
+			NoTags:    parsedArgs.NoTags,
 		}, nil
 
 	case "debug show generate-origins":
@@ -604,20 +460,10 @@ func SelectCommand(ctx context.Context, c *CLI, command string, flags any) (cmd 
 			return nil, err
 		}
 
-		statusFilters, err := status.ParseFilters(
-			parsedArgs.Debug.Show.GenerateOrigins.Status,
-			parsedArgs.Debug.Show.GenerateOrigins.DriftStatus,
-			parsedArgs.Debug.Show.GenerateOrigins.DeploymentStatus,
-		)
-		if err != nil {
-			return nil, err
-		}
-
 		return &generateoriginscmd.Spec{
-			GitFilter:     gitfilter,
-			Tags:          parsedArgs.Tags,
-			NoTags:        parsedArgs.NoTags,
-			StatusFilters: statusFilters,
+			GitFilter: gitfilter,
+			Tags:      parsedArgs.Tags,
+			NoTags:    parsedArgs.NoTags,
 		}, nil
 
 	case "debug show metadata":
@@ -631,20 +477,10 @@ func SelectCommand(ctx context.Context, c *CLI, command string, flags any) (cmd 
 			return nil, err
 		}
 
-		statusFilters, err := status.ParseFilters(
-			parsedArgs.Debug.Show.Metadata.Status,
-			parsedArgs.Debug.Show.Metadata.DriftStatus,
-			parsedArgs.Debug.Show.Metadata.DeploymentStatus,
-		)
-		if err != nil {
-			return nil, err
-		}
-
 		return &debugshowmetadatacmd.Spec{
-			GitFilter:     gitfilter,
-			Tags:          parsedArgs.Tags,
-			NoTags:        parsedArgs.NoTags,
-			StatusFilters: statusFilters,
+			GitFilter: gitfilter,
+			Tags:      parsedArgs.Tags,
+			NoTags:    parsedArgs.NoTags,
 		}, nil
 
 	case "debug show runtime-env":
@@ -657,20 +493,10 @@ func SelectCommand(ctx context.Context, c *CLI, command string, flags any) (cmd 
 		if err != nil {
 			return nil, err
 		}
-		statusFilters, err := status.ParseFilters(
-			parsedArgs.Debug.Show.RuntimeEnv.Status,
-			parsedArgs.Debug.Show.RuntimeEnv.DriftStatus,
-			parsedArgs.Debug.Show.RuntimeEnv.DeploymentStatus,
-		)
-		if err != nil {
-			return nil, err
-		}
-
 		return &debugshowruntimeenv.Spec{
-			GitFilter:     gitfilter,
-			Tags:          parsedArgs.Tags,
-			NoTags:        parsedArgs.NoTags,
-			StatusFilters: statusFilters,
+			GitFilter: gitfilter,
+			Tags:      parsedArgs.Tags,
+			NoTags:    parsedArgs.NoTags,
 		}, nil
 
 	case "experimental run-graph":
@@ -710,7 +536,7 @@ func setupSafeguards(parsedArgs *FlagSpec, runflags runSafeguardsCliSpec) (sf ru
 
 	if runflags.DisableSafeguards.Has(safeguard.All) && runflags.DisableSafeguards.Has(safeguard.None) {
 		return runcmd.Safeguards{}, errors.E(
-			errors.E(clitest.ErrSafeguardKeywordValidation,
+			errors.E(ErrSafeguardKeywordValidation,
 				`the safeguards keywords "all" and "none" are incompatible`),
 			"Disabling safeguards",
 		)

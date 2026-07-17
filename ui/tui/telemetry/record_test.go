@@ -24,13 +24,11 @@ import (
 func TestRecordLifecycle(t *testing.T) {
 	s := sandbox.New(t)
 
-	// Setup credentials and an existing checkpoint signature.
+	// Setup an existing checkpoint signature.
 	s.BuildTree([]string{
-		`f:userdir/credentials.tmrc.json:{"provider": "Google"}`,
 		"f:userdir/checkpoint_signature:a1a15394-e622-4a88-9e01-25b3cdc1d28f\nThis was\ngenerated",
 	})
 
-	credfile := filepath.Join(s.RootDir(), "userdir/credentials.tmrc.json")
 	cpsigfile := filepath.Join(s.RootDir(), "userdir/checkpoint_signature")
 	anasigfile := filepath.Join(s.RootDir(), "userdir/analytics_signature")
 
@@ -44,7 +42,7 @@ func TestRecordLifecycle(t *testing.T) {
 		Command("my-command"),
 		OrgName("hello-org"),
 		OrgUUID("b1a15394-e622-4a88-9e01-25b3cdc1d28e"),
-		DetectFromEnv(credfile, cpsigfile, anasigfile, ci.PlatformGithub, repo),
+		DetectFromEnv(cpsigfile, anasigfile, ci.PlatformGithub, repo),
 		AuthUser("1234567"),
 		BoolFlag("flag1", true),
 		BoolFlag("flag2", false),
@@ -119,13 +117,11 @@ func TestDetectUser(t *testing.T) {
 
 	s := sandbox.New(t)
 
-	// Setup credentials and an existing checkpoint signature.
+	// Setup an existing checkpoint signature.
 	s.BuildTree([]string{
-		`f:userdir/credentials.tmrc.json:{"provider": "Google"}`,
 		"f:userdir/checkpoint_signature:a1a15394-e622-4a88-9e01-25b3cdc1d28f\nThis was\ngenerated",
 	})
 
-	credfile := filepath.Join(s.RootDir(), "userdir/credentials.tmrc.json")
 	cpsigfile := filepath.Join(s.RootDir(), "userdir/checkpoint_signature")
 	anasigfile := filepath.Join(s.RootDir(), "userdir/analytics_signature")
 
@@ -136,13 +132,13 @@ func TestDetectUser(t *testing.T) {
 	for ciEnv, ciPlat := range tests {
 		ciPlat := ciPlat
 		t.Run(fmt.Sprintf("DetectUser-%s=1, no repo", ciEnv), func(t *testing.T) {
-			msgFunc := DetectFromEnv(credfile, cpsigfile, anasigfile, ciPlat, nil)
+			msgFunc := DetectFromEnv(cpsigfile, anasigfile, ciPlat, nil)
 			var got Message
 			msgFunc(&got)
 			if diff := cmp.Diff(got, Message{
 				Platform:     ciPlat,
 				PlatformUser: "",
-				Auth:         AuthIDPGoogle,
+				Auth:         AuthNone,
 				Signature:    "a1a15394-e622-4a88-9e01-25b3cdc1d28f",
 				Arch:         runtime.GOARCH,
 				OS:           runtime.GOOS,
@@ -157,13 +153,13 @@ func TestDetectUser(t *testing.T) {
 				t.Setenv("BITBUCKET_WORKSPACE", "bitbucket-owner")
 				expectedUser = "bitbucket-owner"
 			}
-			msgFunc := DetectFromEnv(credfile, cpsigfile, anasigfile, ciPlat, repo)
+			msgFunc := DetectFromEnv(cpsigfile, anasigfile, ciPlat, repo)
 			var got Message
 			msgFunc(&got)
 			if diff := cmp.Diff(got, Message{
 				Platform:     ciPlat,
 				PlatformUser: expectedUser,
-				Auth:         AuthIDPGoogle,
+				Auth:         AuthNone,
 				Signature:    "a1a15394-e622-4a88-9e01-25b3cdc1d28f",
 				Arch:         runtime.GOARCH,
 				OS:           runtime.GOOS,

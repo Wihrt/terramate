@@ -9,8 +9,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/terramate-io/terramate/cloud/api/resources"
-	cloudstack "github.com/terramate-io/terramate/cloud/api/stack"
 	"github.com/terramate-io/terramate/commands"
 	"github.com/terramate-io/terramate/engine"
 	"github.com/terramate-io/terramate/errors"
@@ -20,10 +18,9 @@ import (
 
 // Spec is the command specification for the debug globals command.
 type Spec struct {
-	GitFilter     engine.GitFilter
-	StatusFilters resources.StatusFilters
-	Tags          []string
-	NoTags        []string
+	GitFilter engine.GitFilter
+	Tags      []string
+	NoTags    []string
 
 	workingDir string
 	engine     *engine.Engine
@@ -42,7 +39,7 @@ func (s *Spec) Exec(_ context.Context, cli commands.CLI) error {
 	s.engine = cli.Engine()
 	s.printers = cli.Printers()
 
-	report, err := s.engine.ListStacks(s.GitFilter, cloudstack.AnyTarget, s.StatusFilters, false)
+	report, err := s.engine.ListStacks(s.GitFilter, false)
 	if err != nil {
 		return err
 	}

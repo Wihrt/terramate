@@ -19,9 +19,14 @@ import (
 	"strings"
 
 	"github.com/terramate-io/terramate"
-	"github.com/terramate-io/terramate/cloud/api/resources"
 	"github.com/terramate-io/terramate/errors"
 )
+
+// Resource is a minimal constraint for types that can be sent/received
+// through the generic HTTP helpers below.
+type Resource interface {
+	Validate() error
+}
 
 // ErrUnexpectedStatus indicates the server responded with an unexpected status code.
 const ErrUnexpectedStatus errors.Kind = "unexpected status code"
@@ -63,7 +68,7 @@ func init() {
 
 // Get requests the endpoint components list making a GET request and decode the response into the
 // entity T if validates successfully.
-func Get[T resources.Resource](ctx context.Context, client Client, u url.URL) (entity T, err error) {
+func Get[T Resource](ctx context.Context, client Client, u url.URL) (entity T, err error) {
 	resource, err := Request[T](ctx, client, "GET", u, nil)
 	if err != nil {
 		return entity, err
@@ -73,7 +78,7 @@ func Get[T resources.Resource](ctx context.Context, client Client, u url.URL) (e
 
 // Post requests the endpoint components list making a POST request and decode the response into the
 // entity T if validates successfully.
-func Post[T resources.Resource](ctx context.Context, client Client, payload any, url url.URL) (entity T, err error) {
+func Post[T Resource](ctx context.Context, client Client, payload any, url url.URL) (entity T, err error) {
 	resource, err := Request[T](ctx, client, "POST", url, payload)
 	if err != nil {
 		return entity, err
@@ -83,7 +88,7 @@ func Post[T resources.Resource](ctx context.Context, client Client, payload any,
 
 // Patch requests the endpoint components list making a PATCH request and decode the response into the
 // entity T if validates successfully.
-func Patch[T resources.Resource](ctx context.Context, client Client, payload interface{}, url url.URL) (entity T, err error) {
+func Patch[T Resource](ctx context.Context, client Client, payload interface{}, url url.URL) (entity T, err error) {
 	resource, err := Request[T](ctx, client, "PATCH", url, payload)
 	if err != nil {
 		return entity, err
@@ -93,7 +98,7 @@ func Patch[T resources.Resource](ctx context.Context, client Client, payload int
 
 // Put requests the endpoint components list making a PUT request and decode the
 // response into the entity T if validated successfully.
-func Put[T resources.Resource](ctx context.Context, client Client, payload interface{}, url url.URL) (entity T, err error) {
+func Put[T Resource](ctx context.Context, client Client, payload interface{}, url url.URL) (entity T, err error) {
 	resource, err := Request[T](ctx, client, "PUT", url, payload)
 	if err != nil {
 		return entity, err
@@ -102,18 +107,18 @@ func Put[T resources.Resource](ctx context.Context, client Client, payload inter
 }
 
 // Delete requests the endpoint url with a DELETE method.
-func Delete[T resources.Resource](ctx context.Context, client Client, url url.URL) error {
+func Delete[T Resource](ctx context.Context, client Client, url url.URL) error {
 	_, err := Request[T](ctx, client, "DELETE", url, nil)
 	return err
 }
 
-// Request makes a request to the Terramate Cloud using client.
+// Request makes an HTTP request using client.
 // The instantiated type gets decoded and return as the entity T,
 // The payload is encoded accordingly to the rules below:
 // - If payload is nil, no body is sent and no Content-Type is set.
 // - If payload is a []byte or string, it is sent as is and the Content-Type is set to text/plain.
 // - If payload is any other type, it is marshaled to JSON and the Content-Type is set to application/json.
-func Request[T resources.Resource](ctx context.Context, c Client, method string, url url.URL, payload any) (res T, err error) {
+func Request[T Resource](ctx context.Context, c Client, method string, url url.URL, payload any) (res T, err error) {
 	req, err := newRequest(ctx, c, method, url, payload)
 	if err != nil {
 		return res, err

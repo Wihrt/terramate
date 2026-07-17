@@ -4,7 +4,6 @@
 package tui
 
 import (
-	"github.com/terramate-io/terramate/cloud/api/preview"
 	"github.com/terramate-io/terramate/safeguard"
 	"github.com/willabides/kongplete"
 )
@@ -47,9 +46,7 @@ type FlagSpec struct {
 	List struct {
 		Why bool `help:"Shows the reason why the stack has changed."`
 
-		cloudFilterFlags
-		Target   string `help:"Select the deployment target of the filtered stacks."`
-		RunOrder bool   `default:"false" help:"Sort listed stacks by order of execution"`
+		RunOrder bool `default:"false" help:"Sort listed stacks by order of execution"`
 
 		changeDetectionFlags
 		outputsSharingFlags
@@ -82,33 +79,15 @@ type FlagSpec struct {
 	Debug struct {
 		Show struct {
 			Metadata struct {
-				cloudFilterFlags
 			} `cmd:"" help:"Show metadata available in stacks."`
 			Globals struct {
-				cloudFilterFlags
 			} `cmd:"" help:"Show globals available in stacks."`
 			GenerateOrigins struct {
-				cloudFilterFlags
 			} `cmd:"" help:"Show details about generated code in stacks."`
 			RuntimeEnv struct {
-				cloudFilterFlags
 			} `cmd:"" help:"Show available run-time environment variables (ENV) in stacks."`
 		} `cmd:"" help:"Show configuration details of stacks."`
 	} `cmd:"" help:"Debug Terramate configuration."`
-
-	Cloud struct {
-		Login struct {
-			Google bool `optional:"true" help:"authenticate with google credentials"`
-			Github bool `optional:"true" help:"authenticate with github credentials"`
-			SSO    bool `optional:"true" help:"authenticate with SSO credentials"`
-		} `cmd:"" help:"Sign in to Terramate Cloud."`
-		Info  struct{} `cmd:"" help:"Show your current Terramate Cloud login status."`
-		Drift struct {
-			Show struct {
-				Target string `help:"Show stacks from the given deployment target."`
-			} `cmd:"" help:"Show the current drift of a stack."`
-		} `cmd:"" help:"Interact with Terramate Cloud Drift Detection."`
-	} `cmd:"" help:"Interact with Terramate Cloud"`
 
 	Trigger struct {
 		Stack        string `arg:"" optional:"true" name:"stack" predictor:"file" help:"The stacks path."`
@@ -116,7 +95,6 @@ type FlagSpec struct {
 		Change       bool   `default:"false" help:"Trigger stacks as changed"`
 		IgnoreChange bool   `default:"false" help:"Trigger stacks to be ignored by change detection"`
 		Reason       string `default:"" name:"reason" help:"Set a reason for triggering the stack."`
-		cloudFilterFlags
 	} `cmd:"" help:"Mark a stack as changed so it will be triggered in Change Detection."`
 
 	Scaffold struct {
@@ -157,7 +135,6 @@ type FlagSpec struct {
 			Change       bool   `default:"false" help:"Trigger stacks as changed"`
 			IgnoreChange bool   `default:"false" help:"Trigger stacks to be ignored by change detection"`
 			Reason       string `default:"" name:"reason" help:"Set a reason for triggering the stack."`
-			cloudFilterFlags
 		} `cmd:"" hidden:"" help:"Mark a stack as changed so it will be triggered in Change Detection. (DEPRECATED)"`
 
 		RunGraph struct {
@@ -189,15 +166,6 @@ type FlagSpec struct {
 			AsJSON bool              `help:"Outputs the result as a JSON value"`
 			Vars   []string          `arg:"" help:"variable to be retrieved" name:"var" passthrough:""`
 		} `cmd:"" help:"Get configuration value"`
-
-		Cloud struct {
-			Login struct{} `cmd:"" help:"login for cloud.terramate.io  (DEPRECATED)"`
-			Info  struct{} `cmd:"" help:"cloud information status (DEPRECATED)"`
-			Drift struct {
-				Show struct {
-				} `cmd:"" help:"show drifts  (DEPRECATED)"`
-			} `cmd:"" help:"manage cloud drifts  (DEPRECATED)"`
-		} `cmd:"" hidden:"" help:"Terramate Cloud commands (DEPRECATED)"`
 	} `cmd:"" help:"Use experimental features."`
 
 	InstallCompletions kongplete.InstallCompletions `cmd:"" help:"Install shell completions."`
@@ -234,14 +202,6 @@ type deprecatedGlobalSafeguardsCliSpec struct {
 	DeprecatedDisableCheckGitUncommitted bool `hidden:"true" optional:"true" name:"disable-check-git-uncommitted" default:"false" env:"TM_DISABLE_CHECK_GIT_UNCOMMITTED" help:"Disable git check for uncommitted files (DEPRECATED)."`
 }
 
-type cloudFilterFlags struct {
-	ExperimentalStatus string `hidden:"" help:"Filter by status (Deprecated)"`
-	CloudStatus        string `hidden:""`
-	Status             string `help:"Filter by Terramate Cloud status of the stack."`
-	DeploymentStatus   string `help:"Filter by Terramate Cloud deployment status of the stack"`
-	DriftStatus        string `help:"Filter by Terramate Cloud drift status of the stack"`
-}
-
 type changeDetectionFlags struct {
 	EnableChangeDetection  []string `help:"Enable specific change detection modes" enum:"git-untracked,git-uncommitted"`
 	DisableChangeDetection []string `help:"Disable specific change detection modes" enum:"git-untracked,git-uncommitted"`
@@ -267,25 +227,6 @@ type outputsSharingFlags struct {
 	ExcludeAllDependents    bool `help:"Remove all dependent stacks from the selection (Terragrunt + Terramate)"`
 }
 
-type cloudTargetFlags struct {
-	Target     string `env:"TARGET" help:"Set the deployment target for stacks synchronized to Terramate Cloud."`
-	FromTarget string `env:"FROM_TARGET" help:"Migrate stacks from given deployment target."`
-}
-
-type cloudSyncFlags struct {
-	CloudSyncDeployment  bool `hidden:""`
-	SyncDeployment       bool `env:"SYNC_DEPLOYMENT" default:"false" help:"Synchronize the command as a new deployment to Terramate Cloud."`
-	CloudSyncDriftStatus bool `hidden:""`
-	SyncDriftStatus      bool `env:"SYNC_DRIFT_STATUS" default:"false" help:"Synchronize the command as a new drift run to Terramate Cloud."`
-	CloudSyncPreview     bool `hidden:""`
-	SyncPreview          bool `env:"SYNC_PREVIEW" default:"false" help:"Synchronize the command as a new preview to Terramate Cloud."`
-
-	CloudSyncLayer             preview.Layer `hidden:""`
-	Layer                      preview.Layer `env:"LAYER" default:"" help:"Set a customer layer for synchronizing a preview to Terramate Cloud."`
-	CloudSyncTerraformPlanFile string        `hidden:""`
-	PlanRenderTimeout          int           `env:"PLAN_RENDER_TIMEOUT" default:"300" help:"Timeout (in seconds) for internal commands that render changes from plan files."`
-}
-
 type commonRunFlags struct {
 	NoRecursive     bool `env:"NO_RECURSIVE" default:"false" help:"Do not recurse into nested child stacks."`
 	ContinueOnError bool `env:"CONTINUE_ON_ERROR" default:"false" help:"Continue executing next stacks when a command returns an error."`
@@ -299,69 +240,23 @@ type commonRunFlags struct {
 }
 
 type runCommandFlags struct {
-	cloudFilterFlags
 	changeDetectionFlags
-	cloudTargetFlags
 
 	EnableSharing bool `env:"ENABLE_SHARING" help:"Enable sharing of stack outputs as stack inputs."`
 	MockOnFail    bool `env:"MOCK_ON_FAIL" help:"Mock the output values if command fails."`
 
-	cloudSyncFlags
-
-	TerraformPlanFile string `env:"TERRAFORM_PLAN_FILE" default:"" help:"Add details of the Terraform Plan file to the synchronization to Terramate Cloud."`
-	TofuPlanFile      string `env:"TOFU_PLAN_FILE" default:"" help:"Add details of the OpenTofu Plan file to the synchronization to Terramate Cloud."`
-	DebugPreviewURL   string `hidden:"true" default:"" help:"Create a debug preview URL to Terramate Cloud details."`
-
 	commonRunFlags
 
 	Eval       bool     `env:"EVAL" default:"false" help:"Evaluate command arguments as HCL strings interpolating Globals, Functions and Metadata."`
-	Terragrunt bool     `env:"TERRAGRUNT" default:"false" help:"Use terragrunt when generating planfile for Terramate Cloud sync."`
+	Terragrunt bool     `env:"TERRAGRUNT" default:"false" help:"Use terragrunt when generating planfile."`
 	Command    []string `arg:"" name:"cmd" predictor:"file" passthrough:"" help:"Command to execute"`
 }
 
 type runScriptFlags struct {
-	cloudFilterFlags
 	changeDetectionFlags
-	cloudTargetFlags
 	commonRunFlags
 
 	Cmds []string `arg:"" optional:"true" passthrough:"" help:"Script to execute."`
-}
-
-func migrateFlagAliases(parsedArgs *FlagSpec) {
-	// list
-	migrateStringFlag(&parsedArgs.List.Status, parsedArgs.List.CloudStatus)
-
-	// run
-	migrateStringFlag(&parsedArgs.Run.Status, parsedArgs.Run.CloudStatus)
-	migrateBoolFlag(&parsedArgs.Run.SyncDeployment, parsedArgs.Run.CloudSyncDeployment)
-	migrateBoolFlag(&parsedArgs.Run.SyncDriftStatus, parsedArgs.Run.CloudSyncDriftStatus)
-	migrateBoolFlag(&parsedArgs.Run.SyncPreview, parsedArgs.Run.CloudSyncPreview)
-	migrateStringFlag(&parsedArgs.Run.TerraformPlanFile, parsedArgs.Run.CloudSyncTerraformPlanFile)
-	if parsedArgs.Run.CloudSyncLayer != "" && parsedArgs.Run.Layer == "" {
-		parsedArgs.Run.Layer = parsedArgs.Run.CloudSyncLayer
-	}
-
-	// script run
-	migrateStringFlag(&parsedArgs.Script.Run.Status, parsedArgs.Script.Run.CloudStatus)
-
-	// experimental trigger
-	migrateStringFlag(&parsedArgs.Experimental.Trigger.Status, parsedArgs.Experimental.Trigger.CloudStatus)
-
-	// trigger
-	migrateStringFlag(&parsedArgs.Trigger.Status, parsedArgs.Trigger.CloudStatus)
-}
-
-func migrateStringFlag(flag *string, alias string) {
-	if alias != "" && *flag == "" {
-		*flag = alias
-	}
-}
-
-func migrateBoolFlag(flag *bool, alias bool) {
-	if alias && !*flag {
-		*flag = alias
-	}
 }
 
 // AsFlagSpec extracts the given spec into the target spec type.

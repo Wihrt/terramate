@@ -11,7 +11,6 @@
   <a href="https://github.com/terramate-io/terramate/releases"><img src="https://img.shields.io/github/v/release/terramate-io/terramate?color=%239F50DA&display_name=tag&label=Version" alt="Latest Release" /></a>
   <a href="https://pkg.go.dev/github.com/terramate-io/terramate"><img src="https://pkg.go.dev/badge/github.com/terramate-io/terramate" alt="Go Docs" /></a>
   <a href="https://goreportcard.com/report/github.com/terramate-io/terramate"><img src="https://goreportcard.com/badge/github.com/terramate-io/terramate" alt="Go Report Card" /></a>
-  <a href="https://github.com/terramate-io/terramate/actions?query=branch%3Amain"><img src="https://github.com/terramate-io/terramate/actions/workflows/ci-sync-deployment.yml/badge.svg" alt="Terramate CI Status" /></a>
   <a href="https://terramate.io/discord" rel="nofollow"><img src="https://img.shields.io/discord/1088753599951151154?label=Discord&logo=discord&logoColor=white" alt="Discord Server"></a>
 </p>
 
@@ -28,16 +27,12 @@
 Terramate CLI is an open-source orchestration and code generation engine that allows Infrastructure as Code (IaC) such
 as Terraform, OpenTofu, Terragrunt and Kubernetes to scale.
 
-Terramate CLI can optionally be paired with [Terramate Cloud](https://terramate.io), a fully managed SaaS service that
-adds additional features to manage and observe all your infrastructure managed with IaC in one or multiple repositories.
-
 With Terramate, you can:
 
 1. Break up large, monolithic state files into multiple smaller stacks to limit blast radius, reduce runtimes and unlock better collaboration.
 2. Reduce code duplication by programmatically generating native Terraform backend and provider configurations or any other arbitrary files using the Terramate compiler.
 3. Using a graph-based orchestration engine, orchestrate any command such as `terraform apply` in stacks. Only deploy stacks that contain changes using change detection built on top of Git.
 4. Automate your IaC using pull requests and GitOps workflows that turn your existing CI/CD, such as GitHub Actions, GitLab CI/CD, BitBucket Pipelines, Azure DevOps, etc, into infrastructure vending machines.
-5. Use Terramate Cloud to add observability, drift detection, asset management, misconfiguration detection, incident management, developer self-service with scaffolding, and Slack notifications.
 
 ## Why Terramate?
 
@@ -81,15 +76,6 @@ go install github.com/terramate-io/terramate/cmd/...@latest
 
 For other installation methods, please see the [documentation](https://terramate.io/docs/cli/installation).
 
-### Connect the CLI to Terramate Cloud
-
-To get the most out of Terramate, [sign up for a free Terramate Cloud account](https://cloud.terramate.io) and connect
-Terramate CLI with your Terramate Cloud account:
-
-```sh
-terramate cloud login
-```
-
 ## Getting Started
 
 Terramate can be onboarded to any existing Terraform, OpenTofu, or Terragrunt with a single command and without requiring
@@ -110,22 +96,7 @@ OpenTofu modules as well as Terragrunt dependencies.
 - **Code Generation:** Generate code such **HCL**, **JSON** and **YAML** to keep your stacks [DRY](https://en.wikipedia.org/wiki/Don%27t_repeat_yourself) (Don't repeat yourself).
 - **Automation Blueprints:** Pre-configured GitOps workflows for GitHub Actions, GitLab CI/CD, BitBucket Pipelines and others to enable Pull
 Automation with plan previews in your existing CI/CD.
-- **Drift Management:** Detect and reconcile drift with scheduled workflows and post-deployment drift detection.
-- **Observability, Visibility and Insights:** Provides actionable insights and observability into your stacks, deployments,
-and resources.
-- **Misconfiguration Detection**: Detect and remediate misconfigurations with more than 500+ pre-configured policies using frameworks such as the Center of Internet Security Benchmarks (CIS).
-- **Asset Management**: Get an inventory of all your infrastructure resources managed by multiple teams, environments and repositories. 
-- **Audit Trail**: Track and review all infrastructure changes for compliance and security.
-- **Alerts**: Manage incidents such as failed deployments or drift with alerts that are automatically assigned to the right teams and individuals.
-- **Slack Integrations**: Integrate notifications in a centralized Slack channel or via our Slack Bot to directly notify users without causing notification fatigue.
 - **Scaffolding**: Enable developer-self service by allowing developers to scaffold complex infrastructure configurations without having to know tools such as Terraform or Terramate in detail.
-
-## Terramate CLI vs Terramate Cloud
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="./terramate_platform_overview_dark.png">
-  <img alt="Terramate Platform" src="./terramate_platform_overview_light.png">
-</picture>
 
 ## Learn more
 

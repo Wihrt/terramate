@@ -65,14 +65,14 @@ type Message struct {
 	Details []string `json:"details,omitempty"`
 }
 
-// DetectAuthTypeFromEnv detects AuthType based on environment variables and credentials.
-func DetectAuthTypeFromEnv(credpath string) AuthType {
+// DetectAuthTypeFromEnv detects AuthType based on environment variables.
+func DetectAuthTypeFromEnv() AuthType {
 	if isEnvVarSet("ACTIONS_ID_TOKEN_REQUEST_TOKEN") {
 		return AuthOIDCGithub
 	} else if isEnvVarSet("TM_GITLAB_ID_TOKEN") {
 		return AuthOIDCGitlab
 	}
-	return getAuthProviderFromCredentials(credpath)
+	return AuthNone
 }
 
 // ReadSignature parses a signature file. It works for checkpoint and analytics signatures as both use the same format.
@@ -129,35 +129,6 @@ func GenerateSignature() string {
 func isEnvVarSet(key string) bool {
 	val := os.Getenv(key)
 	return val != "" && val != "0" && val != "false"
-}
-
-func getAuthProviderFromCredentials(credfile string) AuthType {
-	_, err := os.Lstat(credfile)
-	if err != nil {
-		return AuthNone
-	}
-	contents, err := os.ReadFile(credfile)
-	if err != nil {
-		return AuthNone
-	}
-
-	var providerProbe struct {
-		Provider string `json:"provider"`
-	}
-	err = json.Unmarshal(contents, &providerProbe)
-	if err != nil {
-		return AuthNone
-	}
-
-	switch providerProbe.Provider {
-	case "Google":
-		return AuthIDPGoogle
-	case "GitHub":
-		return AuthIDPGithub
-	default:
-		// Not handling cases like unknown or invalid values.
-		return AuthNone
-	}
 }
 
 // SendMessageParams contains parameters for SendMessage.

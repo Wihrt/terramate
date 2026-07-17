@@ -15,9 +15,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/madlambda/spells/assert"
 	"github.com/terramate-io/terramate/stack/trigger"
@@ -239,25 +237,6 @@ func (tm CLI) NewCmd(ioMode CmdIOMode, args ...string) *Cmd {
 
 	allargs = append(allargs, args...)
 	env := append(tm.environ, tm.AppendEnv...)
-
-	// fake credentials
-	type MyCustomClaims struct {
-		Email string `json:"email"`
-		jwt.RegisteredClaims
-	}
-
-	claims := MyCustomClaims{
-		"batman@terramate.io",
-		jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(1 * time.Hour)),
-			Issuer:    "terramate-tests",
-		},
-	}
-
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	fakeJwt, err := token.SignedString([]byte("test"))
-	assert.NoError(t, err)
-	test.WriteFile(t, tm.userDir, "credentials.tmrc.json", fmt.Sprintf(`{"id_token": "%s", "refresh_token": "abcd", "provider": "Google"}`, fakeJwt))
 
 	cmd := exec.Command(tm.terramatePath(), allargs...)
 	cmd.Env = env

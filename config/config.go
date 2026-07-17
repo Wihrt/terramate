@@ -846,17 +846,6 @@ func (root *Root) IsTerragruntChangeDetectionEnabled() (ret bool) {
 	}
 }
 
-// IsTargetsEnabled returns the configured `terramate.config.cloud.targets.enabled` option.
-func (root *Root) IsTargetsEnabled() bool {
-	if root.tree.Node.Terramate != nil &&
-		root.tree.Node.Terramate.Config != nil &&
-		root.tree.Node.Terramate.Config.Cloud != nil &&
-		root.tree.Node.Terramate.Config.Cloud.Targets != nil {
-		return root.tree.Node.Terramate.Config.Cloud.Targets.Enabled
-	}
-	return false
-}
-
 // Skip returns true if the given file/dir name should be ignored by Terramate.
 func Skip(name string) bool {
 	// assumes filename length > 0

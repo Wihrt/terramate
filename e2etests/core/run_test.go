@@ -3343,7 +3343,7 @@ stack "/stack":
 func TestRunIOBuffering(t *testing.T) {
 	t.Parallel()
 
-	t.Run("non-cloud, non-parallel is unbuffered", func(t *testing.T) {
+	t.Run("non-parallel is unbuffered", func(t *testing.T) {
 		s := sandbox.New(t)
 
 		s.BuildTree([]string{

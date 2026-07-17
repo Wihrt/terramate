@@ -13,17 +13,13 @@ import (
 	"github.com/terramate-io/terramate/errors"
 	"github.com/terramate-io/terramate/printer"
 	"github.com/terramate-io/terramate/run"
-
-	"github.com/terramate-io/terramate/cloud/api/resources"
-	cloudstack "github.com/terramate-io/terramate/cloud/api/stack"
 )
 
 // Spec is the command specification for the show-runtime-env command.
 type Spec struct {
-	GitFilter     engine.GitFilter
-	StatusFilters resources.StatusFilters
-	Tags          []string
-	NoTags        []string
+	GitFilter engine.GitFilter
+	Tags      []string
+	NoTags    []string
 
 	engine   *engine.Engine
 	printers printer.Printers
@@ -42,7 +38,7 @@ func (s *Spec) Exec(_ context.Context, cli commands.CLI) error {
 	s.engine = cli.Engine()
 	s.printers = cli.Printers()
 
-	report, err := s.engine.ListStacks(s.GitFilter, cloudstack.AnyTarget, s.StatusFilters, false)
+	report, err := s.engine.ListStacks(s.GitFilter, false)
 	if err != nil {
 		return errors.E(err, "listing stacks")
 	}

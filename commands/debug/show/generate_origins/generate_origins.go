@@ -10,8 +10,6 @@ import (
 	"path"
 
 	"github.com/rs/zerolog/log"
-	"github.com/terramate-io/terramate/cloud/api/resources"
-	cloudstack "github.com/terramate-io/terramate/cloud/api/stack"
 	"github.com/terramate-io/terramate/commands"
 	"github.com/terramate-io/terramate/di"
 	"github.com/terramate-io/terramate/engine"
@@ -23,10 +21,9 @@ import (
 
 // Spec is the command specification for the generate-origins command.
 type Spec struct {
-	GitFilter     engine.GitFilter
-	StatusFilters resources.StatusFilters
-	Tags          []string
-	NoTags        []string
+	GitFilter engine.GitFilter
+	Tags      []string
+	NoTags    []string
 
 	engine   *engine.Engine
 	printers printer.Printers
@@ -43,7 +40,7 @@ func (s *Spec) Exec(ctx context.Context, cli commands.CLI) error {
 	s.engine = cli.Engine()
 	s.printers = cli.Printers()
 
-	report, err := s.engine.ListStacks(s.GitFilter, cloudstack.AnyTarget, s.StatusFilters, false)
+	report, err := s.engine.ListStacks(s.GitFilter, false)
 	if err != nil {
 		return errors.E(err, "generate debug: selecting stacks")
 	}

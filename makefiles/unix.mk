@@ -20,13 +20,8 @@ endif
 
 ## build a test binary -- not static, telemetry sent to localhost, etc
 .PHONY: test/build
-test/build: test/testserver
+test/build:
 	go build -tags localhostEndpoints -o bin/test-terramate ./cmd/terramate
-
-## build bin/testserver
-.PHONY: test/testserver
-test/testserver:
-	go build -o bin/testserver ./cloud/testserver/cmd/testserver
 
 ## build the helper binary
 .PHONY: test/helper
@@ -39,26 +34,6 @@ tempdir=$(shell ./bin/helper tempdir)
 test: test/helper build
 # 	Using `terramate` because it detects and fails if the generated files are outdated.
 	TM_TEST_ROOT_TEMPDIR=$(tempdir) ./bin/terramate run --no-recursive -- go test -race -count=1 -timeout 30m ./... || ./bin/helper rm $(tempdir)
-
-## test/sync code
-.PHONY: test/sync
-tempdir=$(shell ./bin/helper tempdir)
-test/sync: test/helper build
-# 	Using `terramate` because it detects and fails if the generated files are outdated.
-	TMC_API_HOST=api.stg.terramate.io \
-	TM_TEST_ROOT_TEMPDIR=$(tempdir)   \
-	TM_CLOUD_ORGANIZATION=test        \
-	GITHUB_TOKEN=$(shell cat ../my_github_token.txt) \
-	NO_COLOR=1 \
-	CI=1 \
-	./bin/terramate script run --tags golang --parallel=10 preview || ./bin/helper rm $(tempdir)
-
-## test/interop
-.PHONY: test/interop
-test/interop: org?=test
-test/interop: backend_host?=api.stg.terramate.io
-test/interop:
-	TM_CLOUD_ORGANIZATION=$(org) TMC_API_HOST=$(backend_host) go test -v -count=1 -tags interop ./e2etests/cloud/interop/...
 
 ## graph2png
 .PHONY: graph2png

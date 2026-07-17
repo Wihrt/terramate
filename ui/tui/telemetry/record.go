@@ -11,7 +11,6 @@ import (
 	"sync"
 
 	"github.com/terramate-io/terramate/ci"
-	"github.com/terramate-io/terramate/cloud/api/resources"
 	"github.com/terramate-io/terramate/git"
 )
 
@@ -63,21 +62,21 @@ func OrgName(orgName string) MessageOpt {
 }
 
 // OrgUUID sets the organization uuid.
-func OrgUUID(orgUUID resources.UUID) MessageOpt {
+func OrgUUID(orgUUID string) MessageOpt {
 	return func(msg *Message) {
-		msg.OrgUUID = string(orgUUID)
+		msg.OrgUUID = orgUUID
 	}
 }
 
 // AuthUser sets the auth user.
-func AuthUser(authUser resources.UUID) MessageOpt {
+func AuthUser(authUser string) MessageOpt {
 	return func(msg *Message) {
-		msg.AuthUser = string(authUser)
+		msg.AuthUser = authUser
 	}
 }
 
 // DetectFromEnv detects platform, platform_user, auth type, signature, architecture and OS from the environment.
-func DetectFromEnv(credfile, cpsigfile, anasigfile string, plat ci.PlatformType, repo *git.Repository) MessageOpt {
+func DetectFromEnv(cpsigfile, anasigfile string, plat ci.PlatformType, repo *git.Repository) MessageOpt {
 	return func(msg *Message) {
 		msg.Platform = plat
 
@@ -90,7 +89,7 @@ func DetectFromEnv(credfile, cpsigfile, anasigfile string, plat ci.PlatformType,
 			}
 		}
 
-		msg.Auth = DetectAuthTypeFromEnv(credfile)
+		msg.Auth = DetectAuthTypeFromEnv()
 		msg.Signature, _ = GenerateOrReadSignature(cpsigfile, anasigfile)
 
 		msg.Arch = runtime.GOARCH

@@ -14,8 +14,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
-	"github.com/terramate-io/terramate/cloud/api/resources"
-	cloudstack "github.com/terramate-io/terramate/cloud/api/stack"
 	"github.com/terramate-io/terramate/commands"
 	"github.com/terramate-io/terramate/config"
 	"github.com/terramate-io/terramate/engine"
@@ -411,7 +409,7 @@ func hasTFExt(fname string) bool {
 }
 
 func (s *Spec) ensureStackID() error {
-	report, err := s.engine.ListStacks(engine.NoGitFilter(), cloudstack.AnyTarget, resources.NoStatusFilters(), false)
+	report, err := s.engine.ListStacks(engine.NoGitFilter(), false)
 	if err != nil {
 		return errors.E(err, "listing stacks")
 	}
