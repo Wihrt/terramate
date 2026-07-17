@@ -4,7 +4,7 @@ tag_prefix = "v"
 branch_whitelist = ["main"]
 ignore_merge_commits = true
 from_latest_tag = true
-disable_changelog = false
+disable_changelog = true
 
 # Default profile: automatic "dev" pre-release path.
 # {{version}} is the bare semver (no "v"), matching VERSION's existing convention.
