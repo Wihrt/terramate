@@ -23,7 +23,7 @@ Un état des lieux complet (4 audits parallèles : TUI, code bundle, structure g
 
 ## Non-objectifs
 
-- Refactoriser le code upstream (`hcl/hcl.go`, `engine/`, `generate/`, `stack/manager.go`, `ui/tui/cli_handler.go`…) : consigné au backlog, traité plus tard de façon incrémentale.
+- Refactoriser le code upstream (`hcl/hcl.go`, `engine/`, `generate/`, `stack/manager.go`, `ui/tui/cli_handler.go`…) : traité dans un chantier dédié exécuté après celui-ci — voir [2026-07-17-refactoring-upstream-design.md](2026-07-17-refactoring-upstream-design.md).
 - Ajouter des fonctionnalités à la TUI ou aux bundles.
 - Documenter le produit pour des utilisateurs externes au-delà du README (pas de site de docs).
 
