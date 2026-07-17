@@ -96,7 +96,7 @@ Replaces the current "build snapshot, overwrite floating `dev` pre-release" job 
 2. `publish_dev` job, `needs: build_test`, `permissions: contents: write`:
    - `actions/checkout` (`fetch-depth: 0`, needed for cocogitto/goreleaser history).
    - `jdx/mise-action` (replaces `actions/setup-go` + `goreleaser/goreleaser-action` — `cocogitto`
-     and `goreleaser` are already pinned in `.mise.toml`, so this also removes a version drift
+     and `goreleaser` are already pinned in `mise.toml`, so this also removes a version drift
      risk between local dev and CI).
    - `mise exec -- cog bump` — uses `cog.toml`'s default profile, auto-detects whether a
      dev bump is warranted from conventional commits since the last tag, creates and pushes a
@@ -124,7 +124,7 @@ Replaces the current "build snapshot, overwrite floating `dev` pre-release" job 
      pushes the tag with their own git credentials, firing this workflow exactly as it does
      today.
 
-### `.mise.toml` cleanup
+### `mise.toml` cleanup
 
 Remove two tasks made obsolete/contradictory by this change:
 

@@ -4,7 +4,7 @@
 
 **Goal:** Make cocogitto the source of truth for versioning, tagging, and changelog/release-notes generation in the OSS release pipeline, replacing the floating "dev" pre-release with real `-dev.N` tags, without any privileged CI token.
 
-**Architecture:** `oss-main.yml` becomes self-contained: `cog bump` (auto dev profile) → `cog changelog --at` → `goreleaser release --release-notes=...`, all in one job, all pushed with the default `GITHUB_TOKEN`. `oss-release.yml` keeps its existing tag-push trigger (fed by the maintainer running `cog bump --hook-profile release` locally) and gains the same `cog changelog --at` → `goreleaser release --release-notes=...` sequence. Both workflows switch from `actions/setup-go` + `goreleaser-action` to `jdx/mise-action`, since `cocogitto` and `goreleaser` are already pinned in `.mise.toml`.
+**Architecture:** `oss-main.yml` becomes self-contained: `cog bump` (auto dev profile) → `cog changelog --at` → `goreleaser release --release-notes=...`, all in one job, all pushed with the default `GITHUB_TOKEN`. `oss-release.yml` keeps its existing tag-push trigger (fed by the maintainer running `cog bump --hook-profile release` locally) and gains the same `cog changelog --at` → `goreleaser release --release-notes=...` sequence. Both workflows switch from `actions/setup-go` + `goreleaser-action` to `jdx/mise-action`, since `cocogitto` and `goreleaser` are already pinned in `mise.toml`.
 
 **Tech Stack:** GitHub Actions, `jdx/mise-action`, cocogitto 7.0.0 (`cog`), GoReleaser 2.17.0 (OSS), bash.
 
@@ -140,7 +140,7 @@ git commit -m "chore: drop goreleaser's own changelog config, notes now come fro
 ## Task 3: Remove obsolete pre-cocogitto mise tasks
 
 **Files:**
-- Modify: `.mise.toml`
+- Modify: `mise.toml`
 
 **Interfaces:**
 - Consumes: none.
@@ -148,7 +148,7 @@ git commit -m "chore: drop goreleaser's own changelog config, notes now come fro
 
 - [ ] **Step 1: Remove `tasks.release` and `tasks."release:tag"`**
 
-Delete these two blocks from `.mise.toml`:
+Delete these two blocks from `mise.toml`:
 ```toml
 [tasks.release]
 description = "Generate a terramate release"
@@ -167,16 +167,28 @@ git push origin "$version"
 
 - [ ] **Step 2: Verify the remaining tasks list is intact**
 
-Run:
+`mise` layers every `mise.toml`/`.mise.toml` it finds walking up the directory
+tree from the current directory, not just the closest one. If this repo is
+checked out as a worktree nested inside another checkout of the same repo
+(e.g. under `.worktrees/`), `mise tasks ls` merges in the outer checkout's
+`mise.toml` too, so a removed task can still appear in the merged list even
+though this file no longer defines it. Verify this file's own content
+directly instead of the merged CLI view:
+
 ```bash
-mise tasks ls | grep release
+grep -c '^\[tasks\.release\]\|^\[tasks\."release:tag"\]' mise.toml
 ```
-Expected: exactly one line, `release:dry-run            Dry run of the release process` — confirming `release` and `release:tag` are gone while the unrelated `release:dry-run` task is untouched.
+Expected: `0` (neither block remains in this file).
+
+```bash
+grep -c '^\[tasks\."release:dry-run"\]' mise.toml
+```
+Expected: `1` (untouched).
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add .mise.toml
+git add mise.toml
 git commit -m "chore: remove mise tasks superseded by cog bump"
 ```
 
