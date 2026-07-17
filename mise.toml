@@ -177,23 +177,11 @@ rm -f *.test
 description = "Dry run of the release process"
 run = "goreleaser release --snapshot --rm-dist"
 
-[tasks.release]
-description = "Generate a terramate release"
-run = "goreleaser release --rm-dist --key $GORELEASER_KEY"
-
 [tasks.graph2png]
 description = "Render the stack run-graph to graph.png (requires graphviz)"
 run = '''
 ./bin/terramate experimental run-graph | dot -Tpng > graph.png
 echo "check the image: graph.png"
-'''
-
-[tasks."release:tag"]
-description = "Create a new release tag"
-run = '''
-version=${VERSION:-v$(cat VERSION)}
-git tag -s -a "$version" -m "Release $version"
-git push origin "$version"
 '''
 
 [tasks.clean]
