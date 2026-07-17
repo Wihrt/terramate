@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -20,14 +21,55 @@ import (
 )
 
 func (m Model) updateReconfigSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.reconfigFilter.editing {
+		switch {
+		case key.Matches(msg, keys.Escape):
+			m.reconfigFilter.input.SetValue("")
+			m.reconfigFilter.input.Blur()
+			m.reconfigFilter.editing = false
+			m.applyReconfigFilter()
+			return m, nil
+		case key.Matches(msg, keys.Enter):
+			m.reconfigFilter.input.Blur()
+			m.reconfigFilter.editing = false
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.reconfigFilter.input, cmd = m.reconfigFilter.input.Update(msg)
+		m.applyReconfigFilter()
+		return m, cmd
+	}
+
 	switch {
 	case key.Matches(msg, keys.Escape):
+		if m.reconfigFilter.input.Value() != "" {
+			m.reconfigFilter.input.SetValue("")
+			m.applyReconfigFilter()
+			return m, nil
+		}
 		if m.reconfigFilterPos >= 0 {
 			m.reconfigFilterPos = -1
 			m.applyReconfigFilter()
 			return m, nil
 		}
 		m.viewState = ViewOverview
+		return m, nil
+
+	case msg.String() == "/":
+		m.reconfigFilter.editing = true
+		m.reconfigFilter.input.Width = m.effectiveWidth() - 8
+		m.reconfigFilter.input.Focus()
+		return m, textinput.Blink
+
+	case key.Matches(msg, keys.PgUp), key.Matches(msg, keys.PgDn):
+		down := key.Matches(msg, keys.PgDn)
+		innerWidth := m.effectiveWidth() - 4
+		contentWidth := innerWidth - 4 // scrollbarGutter, matches renderReconfigSelectView
+		availableHeight := m.effectiveContentHeight() - lipgloss.Height(m.reconfigListHeader(innerWidth))
+		groups := groupBundles(m.reconfigBundles)
+		selectedItemIdx, items := m.renderGroupedBundleItems(groups, m.reconfigCursor, contentWidth)
+		newItemIdx := reconfigPageCursor(items, selectedItemIdx, availableHeight, 0, down)
+		m.reconfigCursor = reconfigCursorForItem(items, newItemIdx)
 		return m, nil
 
 	case key.Matches(msg, keys.Up):
@@ -65,6 +107,35 @@ func (m Model) updateReconfigSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) applyReconfigFilter() {
 	m.reconfigBundles = m.buildReconfigBundles()
 	m.reconfigCursor = 0
+}
+
+// reconfigFilterState holds the free-text filter editing state for the
+// Reconfigure bundle list.
+type reconfigFilterState struct {
+	input   textinput.Model
+	editing bool
+}
+
+// newReconfigFilterState creates a fresh, unfocused filter input.
+func newReconfigFilterState() reconfigFilterState {
+	ti := textinput.New()
+	ti.Prompt = "/ "
+	ti.CharLimit = 128
+	return reconfigFilterState{input: ti}
+}
+
+// reconfigBundleMatchesFilter reports whether b's definition name or
+// instance alias contains query (case-insensitive). An empty query matches
+// everything.
+func reconfigBundleMatchesFilter(b *config.Bundle, query string) bool {
+	if query == "" {
+		return true
+	}
+	q := strings.ToLower(query)
+	if strings.Contains(strings.ToLower(b.DefinitionMetadata.Name), q) {
+		return true
+	}
+	return strings.Contains(strings.ToLower(displayNameFromAlias(b.Alias, b.Name)), q)
 }
 
 // loadReconfigBundle loads the bundle definition for the given bundle,
@@ -183,6 +254,7 @@ func makeBundleDefinitionEntry(root *config.Root, b *config.Bundle) *config.Bund
 // the flat cursor index matches the visual position.
 func (m Model) buildReconfigBundles() []*config.Bundle {
 	f := m.currentReconfigFilter()
+	query := strings.TrimSpace(m.reconfigFilter.input.Value())
 	var filtered []*config.Bundle
 	for _, b := range m.EngineState.Registry.Bundles {
 		if f != nil {
@@ -193,6 +265,9 @@ func (m Model) buildReconfigBundles() []*config.Bundle {
 			} else if b.Environment == nil || b.Environment.ID != f.env.ID {
 				continue
 			}
+		}
+		if !reconfigBundleMatchesFilter(b, query) {
+			continue
 		}
 		filtered = append(filtered, b)
 	}
@@ -285,12 +360,12 @@ func (m Model) renderGroupedBundleItems(groups []bundleGroup, cursor, contentWid
 
 		// Empty line before group (except first)
 		if gi > 0 {
-			items = append(items, renderedItem{content: "", height: 1})
+			items = append(items, renderedItem{content: "", height: 1, selectable: false})
 		}
 
 		// Group header: non-selectable
 		headerLine := headerNameStyle.Render(g.name) + " " + versionStyle.Render("v"+b0.DefinitionMetadata.Version)
-		items = append(items, renderedItem{content: lineStyle.Render(headerLine), height: 1})
+		items = append(items, renderedItem{content: lineStyle.Render(headerLine), height: 1, selectable: false})
 
 		// Instance rows
 		for _, b := range g.bundles {
@@ -311,7 +386,7 @@ func (m Model) renderGroupedBundleItems(groups []bundleGroup, cursor, contentWid
 				line += " " + envStyle.Render("["+b.Environment.Name+"]")
 			}
 
-			items = append(items, renderedItem{content: lineStyle.Render(line), height: 1})
+			items = append(items, renderedItem{content: lineStyle.Render(line), height: 1, selectable: true})
 		}
 	}
 
@@ -319,7 +394,6 @@ func (m Model) renderGroupedBundleItems(groups []bundleGroup, cursor, contentWid
 }
 
 func (m Model) renderReconfigSelectView() string {
-	est := m.EngineState
 	panelWidth := m.effectiveWidth()
 	innerWidth := panelWidth - 4
 	scrollbarGutter := 4 // left gap(1) + scrollbar(1) + right gap(2)
@@ -346,34 +420,12 @@ func (m Model) renderReconfigSelectView() string {
 			breadcrumb = "Reconfigure Bundle Instance in " + f.label
 		}
 	}
+	if query := m.reconfigFilter.input.Value(); query != "" {
+		breadcrumb += fmt.Sprintf(" — filter: %q", query)
+	}
 	title := m.renderHeader(breadcrumb)
 
-	// Detail box for highlighted bundle
-	var detailBox string
-	if m.reconfigCursor < len(m.reconfigBundles) {
-		b := m.reconfigBundles[m.reconfigCursor]
-		fields := []detailField{
-			{label: "Bundle", value: b.DefinitionMetadata.Name + " v" + b.DefinitionMetadata.Version, truncEnd: true},
-		}
-		if b.DefinitionMetadata.Class != "" {
-			fields = append(fields, detailField{label: "Class", value: b.DefinitionMetadata.Class, truncEnd: true})
-		}
-		fields = append(fields, detailField{label: "Alias", value: displayNameFromAlias(b.Alias, b.Name), truncEnd: true})
-		envName := "n/a"
-		if b.Environment != nil {
-			envName = b.Environment.Name
-		}
-		fields = append(fields, detailField{label: "Environment", value: envName, truncEnd: true})
-		fields = append(fields, detailField{}) // separator
-		fields = append(fields, detailField{label: "Source", value: b.Source})
-		hostPath := project.PrjAbsPath(est.Root.HostDir(), b.Info.HostPath()).String()
-		if hostPath != "" {
-			fields = append(fields, detailField{label: "Config", value: hostPath})
-		}
-		detailBox = renderDetailBox(innerWidth, "Bundle Instance Details", fields)
-	}
-
-	header := lipgloss.JoinVertical(lipgloss.Left, detailBox, "")
+	header := m.reconfigListHeader(innerWidth)
 	headerHeight := lipgloss.Height(header)
 	availableHeight := m.effectiveContentHeight() - headerHeight
 
@@ -404,9 +456,20 @@ func (m Model) renderReconfigSelectView() string {
 	if m.reconfigFilterPos >= 0 {
 		escLabel = "esc: reset filter"
 	}
+	if m.reconfigFilter.input.Value() != "" {
+		escLabel = "esc: clear filter"
+	}
 	helpParts := escLabel
 	if len(m.reconfigFilters) > 0 {
 		helpParts += " • e: show only " + m.nextReconfigFilterName()
+	}
+	switch {
+	case m.reconfigFilter.editing:
+		helpParts = "esc: clear • enter: apply"
+	case m.reconfigFilter.input.Value() == "":
+		helpParts += " • /: filter"
+	default:
+		helpParts += " • /: edit filter"
 	}
 	help := helpStyle.Render(m.finalHelpText(helpParts))
 
@@ -418,6 +481,81 @@ func (m Model) renderReconfigSelectView() string {
 	)
 
 	return lipgloss.NewStyle().Padding(1, 2).Render(content)
+}
+
+// reconfigListHeader renders the detail box shown above the Reconfigure
+// bundle list. Used both for display and, via lipgloss.Height, to compute
+// the available height for PgUp/PgDn page-jump math.
+func (m Model) reconfigListHeader(innerWidth int) string {
+	est := m.EngineState
+	var detailBox string
+	if m.reconfigCursor < len(m.reconfigBundles) {
+		b := m.reconfigBundles[m.reconfigCursor]
+		fields := []detailField{
+			{label: "Bundle", value: b.DefinitionMetadata.Name + " v" + b.DefinitionMetadata.Version, truncEnd: true},
+		}
+		if b.DefinitionMetadata.Class != "" {
+			fields = append(fields, detailField{label: "Class", value: b.DefinitionMetadata.Class, truncEnd: true})
+		}
+		fields = append(fields, detailField{label: "Alias", value: displayNameFromAlias(b.Alias, b.Name), truncEnd: true})
+		envName := "n/a"
+		if b.Environment != nil {
+			envName = b.Environment.Name
+		}
+		fields = append(fields, detailField{label: "Environment", value: envName, truncEnd: true})
+		fields = append(fields, detailField{}) // separator
+		fields = append(fields, detailField{label: "Source", value: b.Source})
+		hostPath := project.PrjAbsPath(est.Root.HostDir(), b.Info.HostPath()).String()
+		if hostPath != "" {
+			fields = append(fields, detailField{label: "Config", value: hostPath})
+		}
+		detailBox = renderDetailBox(innerWidth, "Bundle Instance Details", fields)
+	}
+	var headerParts []string
+	if m.reconfigFilter.editing || m.reconfigFilter.input.Value() != "" {
+		filterStyle := lipgloss.NewStyle().Foreground(colorTextMuted)
+		headerParts = append(headerParts, filterStyle.Render(m.reconfigFilter.input.View()), "")
+	}
+	headerParts = append(headerParts, detailBox, "")
+	return lipgloss.JoinVertical(lipgloss.Left, headerParts...)
+}
+
+// reconfigPageCursor returns the new item-list index for a PgUp/PgDn jump
+// over the Reconfigure bundle list. down selects PgDn vs PgUp. cursor and
+// the return value are indices into items (as returned by
+// renderGroupedBundleItems), not bundle indices — see reconfigCursorForItem.
+func reconfigPageCursor(items []renderedItem, cursor, availableHeight, sep int, down bool) int {
+	if len(items) == 0 {
+		return 0
+	}
+	start, end := scrollWindowVar(cursor, items, availableHeight, sep)
+	if down {
+		for i := end; i < len(items); i++ {
+			if items[i].selectable {
+				return i
+			}
+		}
+		return lastSelectableIndex(items)
+	}
+	for i := start - 1; i >= 0; i-- {
+		if items[i].selectable {
+			return i
+		}
+	}
+	return firstSelectableIndex(items)
+}
+
+// reconfigCursorForItem converts an index into the rendered items list back
+// into a bundle-index (m.reconfigCursor space) by counting selectable items
+// before it.
+func reconfigCursorForItem(items []renderedItem, itemIdx int) int {
+	rank := 0
+	for i := 0; i < itemIdx; i++ {
+		if items[i].selectable {
+			rank++
+		}
+	}
+	return rank
 }
 
 func (m Model) renderReconfigInputView() string {

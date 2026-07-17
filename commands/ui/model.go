@@ -135,7 +135,9 @@ type Model struct {
 	createExitConfirmIdx int                     // 0 = Yes, 1 = No
 
 	// Bundle selection state (flat list)
-	flatBundles            []flatBundleEntry
+	allFlatBundles         []flatBundleEntry // Unfiltered master list, rebuilt each time Scaffold is entered
+	flatBundles            []flatBundleEntry // Filtered view of allFlatBundles for the current filter query
+	flatBundleFilter       flatFilterState   // Free-text filter state for the flat bundle list
 	flatBundleCursor       int
 	selectedCollIdx        int // Set by selectFlatBundle, used by loadBundleDef
 	selectedBundleIdx      int // Set by selectFlatBundle, used by loadBundleDef
@@ -152,12 +154,13 @@ type Model struct {
 	objectEditStack []ObjectEditFrame // Stack for nested object input editing
 
 	// Reconfigure state
-	reconfigBundles      []*config.Bundle // Filtered bundles for current filter, rebuilt on filter change
-	reconfigCursor       int              // Cursor in reconfigBundles
-	reconfigBundle       *config.Bundle   // The bundle currently being reconfigured
-	reconfigFromOverview bool             // true when reconfig was entered from session panel (skip ViewReconfigSelect on ESC)
-	reconfigFilters      []envFilterState // Precomputed valid filter states
-	reconfigFilterPos    int              // Current position in reconfigFilters (-1 = all/no filter)
+	reconfigBundles      []*config.Bundle    // Filtered bundles for current filter, rebuilt on filter change
+	reconfigCursor       int                 // Cursor in reconfigBundles
+	reconfigBundle       *config.Bundle      // The bundle currently being reconfigured
+	reconfigFromOverview bool                // true when reconfig was entered from session panel (skip ViewReconfigSelect on ESC)
+	reconfigFilters      []envFilterState    // Precomputed valid filter states
+	reconfigFilterPos    int                 // Current position in reconfigFilters (-1 = all/no filter)
+	reconfigFilter       reconfigFilterState // Free-text filter state for the Reconfigure bundle list
 
 	// Promote state
 	promoteBundles    []*config.Bundle      // Filtered bundles for current filter
@@ -166,6 +169,7 @@ type Model struct {
 	promoteBundle     *config.Bundle        // The bundle currently being promoted
 	promoteFilters    []envFilterState      // Precomputed valid filter states
 	promoteFilterPos  int                   // Current position in promoteFilters (-1 = all/no filter)
+	promoteFilter     promoteFilterState    // Free-text filter state for the Promote bundle list
 
 	// Transient status
 	currentErr       error  // Shown in the overview error area, cleared on next keypress
@@ -423,6 +427,8 @@ type keyMap struct {
 	Down   key.Binding
 	Left   key.Binding
 	Right  key.Binding
+	PgUp   key.Binding
+	PgDn   key.Binding
 }
 
 var keys = keyMap{
@@ -457,6 +463,14 @@ var keys = keyMap{
 	Right: key.NewBinding(
 		key.WithKeys("right", "l"),
 		key.WithHelp("→/l", "right"),
+	),
+	PgUp: key.NewBinding(
+		key.WithKeys("pgup", "b"),
+		key.WithHelp("pgup", "page up"),
+	),
+	PgDn: key.NewBinding(
+		key.WithKeys("pgdown", "f"),
+		key.WithHelp("pgdn", "page down"),
 	),
 }
 

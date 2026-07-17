@@ -121,16 +121,17 @@ func (m *Model) executeCommand() {
 			m.currentErr = errors.E("No collections available. Configure package sources to get started.")
 			return
 		}
-		m.flatBundles = buildFlatBundles(est)
-		if len(m.flatBundles) == 0 {
+		m.allFlatBundles = buildFlatBundles(est)
+		if len(m.allFlatBundles) == 0 {
 			m.currentErr = errors.E("No bundles available.")
 			return
 		}
+		m.flatBundleFilter = newFlatFilterState()
+		m.applyFlatBundleFilter()
 		m.viewState = ViewCreateSelect
-		m.flatBundleCursor = 0
-		m.bundleSelectErr = ""
 	case "Reconfigure":
 		m.reconfigFilterPos = -1
+		m.reconfigFilter = newReconfigFilterState()
 		m.reconfigFilters = m.buildReconfigFilters()
 		m.reconfigBundles = m.buildReconfigBundles()
 		if len(m.reconfigBundles) == 0 {
@@ -145,6 +146,7 @@ func (m *Model) executeCommand() {
 		m.reconfigCursor = 0
 	case "Promote":
 		m.promoteFilterPos = -1
+		m.promoteFilter = newPromoteFilterState()
 		m.promoteFilters = m.buildPromoteFilters()
 		m.promoteBundles, m.promoteTargetEnvs = m.buildAllPromoteBundles()
 		if len(m.promoteBundles) == 0 {

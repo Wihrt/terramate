@@ -4,9 +4,11 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/zclconf/go-cty/cty"
@@ -17,14 +19,55 @@ import (
 )
 
 func (m Model) updatePromoteSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.promoteFilter.editing {
+		switch {
+		case key.Matches(msg, keys.Escape):
+			m.promoteFilter.input.SetValue("")
+			m.promoteFilter.input.Blur()
+			m.promoteFilter.editing = false
+			m.applyPromoteFilter()
+			return m, nil
+		case key.Matches(msg, keys.Enter):
+			m.promoteFilter.input.Blur()
+			m.promoteFilter.editing = false
+			return m, nil
+		}
+		var cmd tea.Cmd
+		m.promoteFilter.input, cmd = m.promoteFilter.input.Update(msg)
+		m.applyPromoteFilter()
+		return m, cmd
+	}
+
 	switch {
 	case key.Matches(msg, keys.Escape):
+		if m.promoteFilter.input.Value() != "" {
+			m.promoteFilter.input.SetValue("")
+			m.applyPromoteFilter()
+			return m, nil
+		}
 		if m.promoteFilterPos >= 0 {
 			m.promoteFilterPos = -1
 			m.applyPromoteFilter()
 			return m, nil
 		}
 		m.viewState = ViewOverview
+		return m, nil
+
+	case msg.String() == "/":
+		m.promoteFilter.editing = true
+		m.promoteFilter.input.Width = m.effectiveWidth() - 8
+		m.promoteFilter.input.Focus()
+		return m, textinput.Blink
+
+	case key.Matches(msg, keys.PgUp), key.Matches(msg, keys.PgDn):
+		down := key.Matches(msg, keys.PgDn)
+		innerWidth := m.effectiveWidth() - 4
+		contentWidth := innerWidth - 4 // scrollbarGutter, matches renderPromoteSelectView
+		availableHeight := m.effectiveContentHeight() - lipgloss.Height(m.promoteListHeader(innerWidth))
+		groups := groupBundles(m.promoteBundles)
+		selectedItemIdx, items := m.renderPromoteGroupedItems(groups, m.promoteCursor, contentWidth)
+		newItemIdx := promotePageCursor(items, selectedItemIdx, availableHeight, 0, down)
+		m.promoteCursor = promoteCursorForItem(items, newItemIdx)
 		return m, nil
 
 	case key.Matches(msg, keys.Up):
@@ -63,6 +106,35 @@ func (m Model) updatePromoteSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) applyPromoteFilter() {
 	m.promoteBundles, m.promoteTargetEnvs = m.buildAllPromoteBundles()
 	m.promoteCursor = 0
+}
+
+// promoteFilterState holds the free-text filter editing state for the
+// Promote bundle list.
+type promoteFilterState struct {
+	input   textinput.Model
+	editing bool
+}
+
+// newPromoteFilterState creates a fresh, unfocused filter input.
+func newPromoteFilterState() promoteFilterState {
+	ti := textinput.New()
+	ti.Prompt = "/ "
+	ti.CharLimit = 128
+	return promoteFilterState{input: ti}
+}
+
+// promoteBundleMatchesFilter reports whether b's definition name or
+// instance alias contains query (case-insensitive). An empty query matches
+// everything.
+func promoteBundleMatchesFilter(b *config.Bundle, query string) bool {
+	if query == "" {
+		return true
+	}
+	q := strings.ToLower(query)
+	if strings.Contains(strings.ToLower(b.DefinitionMetadata.Name), q) {
+		return true
+	}
+	return strings.Contains(strings.ToLower(displayNameFromAlias(b.Alias, b.Name)), q)
 }
 
 // loadPromoteBundle loads the bundle definition for the given bundle,
@@ -172,6 +244,7 @@ func (m Model) buildAllPromoteBundles() ([]*config.Bundle, []*config.Environment
 
 	var bundles []*config.Bundle
 	var targetEnvs []*config.Environment
+	query := strings.TrimSpace(m.promoteFilter.input.Value())
 
 	for _, targetEnv := range est.Registry.Environments {
 		if targetEnv.PromoteFrom == "" {
@@ -192,6 +265,9 @@ func (m Model) buildAllPromoteBundles() ([]*config.Bundle, []*config.Environment
 				continue
 			}
 			if len(missingBundleRefs(b, existing)) > 0 {
+				continue
+			}
+			if !promoteBundleMatchesFilter(b, query) {
 				continue
 			}
 			bundles = append(bundles, b)
@@ -271,8 +347,6 @@ func envNameForID(envs []*config.Environment, envID string) string {
 }
 
 func (m Model) renderPromoteSelectView() string {
-	est := m.EngineState
-
 	panelWidth := m.effectiveWidth()
 	innerWidth := panelWidth - 4
 	scrollbarGutter := 4 // left gap(1) + scrollbar(1) + right gap(2)
@@ -295,34 +369,12 @@ func (m Model) renderPromoteSelectView() string {
 	if f := m.currentPromoteFilter(); f != nil {
 		breadcrumb = "Promote Bundle Instance to " + f.label
 	}
+	if query := m.promoteFilter.input.Value(); query != "" {
+		breadcrumb += fmt.Sprintf(" — filter: %q", query)
+	}
 	title := m.renderHeader(breadcrumb)
 
-	// Detail box for highlighted bundle
-	var detailBox string
-	if m.promoteCursor < len(m.promoteBundles) {
-		b := m.promoteBundles[m.promoteCursor]
-		fields := []detailField{
-			{label: "Bundle", value: b.DefinitionMetadata.Name + " v" + b.DefinitionMetadata.Version, truncEnd: true},
-		}
-		if b.DefinitionMetadata.Class != "" {
-			fields = append(fields, detailField{label: "Class", value: b.DefinitionMetadata.Class, truncEnd: true})
-		}
-		fields = append(fields, detailField{label: "Alias", value: displayNameFromAlias(b.Alias, b.Name), truncEnd: true})
-		if m.promoteCursor < len(m.promoteTargetEnvs) {
-			sourceEnvName := envNameForID(est.Registry.Environments, b.Environment.ID)
-			targetEnvName := m.promoteTargetEnvs[m.promoteCursor].Name
-			fields = append(fields, detailField{label: "Promote", value: sourceEnvName + " → " + targetEnvName, truncEnd: true})
-		}
-		fields = append(fields, detailField{}) // separator
-		fields = append(fields, detailField{label: "Source", value: b.Source})
-		hostPath := project.PrjAbsPath(est.Root.HostDir(), b.Info.HostPath()).String()
-		if hostPath != "" {
-			fields = append(fields, detailField{label: "Config", value: hostPath})
-		}
-		detailBox = renderDetailBox(innerWidth, "Bundle Instance Details", fields)
-	}
-
-	header := lipgloss.JoinVertical(lipgloss.Left, detailBox, "")
+	header := m.promoteListHeader(innerWidth)
 	headerHeight := lipgloss.Height(header)
 	availableHeight := m.effectiveContentHeight() - headerHeight
 
@@ -353,9 +405,20 @@ func (m Model) renderPromoteSelectView() string {
 	if m.promoteFilterPos >= 0 {
 		escLabel = "esc: reset filter"
 	}
+	if m.promoteFilter.input.Value() != "" {
+		escLabel = "esc: clear filter"
+	}
 	helpParts := escLabel
 	if len(m.promoteFilters) > 0 {
 		helpParts += " • e: show target env " + m.nextPromoteFilterName()
+	}
+	switch {
+	case m.promoteFilter.editing:
+		helpParts = "esc: clear • enter: apply"
+	case m.promoteFilter.input.Value() == "":
+		helpParts += " • /: filter"
+	default:
+		helpParts += " • /: edit filter"
 	}
 	help := helpStyle.Render(m.finalHelpText(helpParts))
 
@@ -367,6 +430,79 @@ func (m Model) renderPromoteSelectView() string {
 	)
 
 	return lipgloss.NewStyle().Padding(1, 2).Render(content)
+}
+
+// promoteListHeader renders the detail box shown above the Promote bundle
+// list. Used both for display and, via lipgloss.Height, to compute the
+// available height for PgUp/PgDn page-jump math.
+func (m Model) promoteListHeader(innerWidth int) string {
+	est := m.EngineState
+	var detailBox string
+	if m.promoteCursor < len(m.promoteBundles) {
+		b := m.promoteBundles[m.promoteCursor]
+		fields := []detailField{
+			{label: "Bundle", value: b.DefinitionMetadata.Name + " v" + b.DefinitionMetadata.Version, truncEnd: true},
+		}
+		if b.DefinitionMetadata.Class != "" {
+			fields = append(fields, detailField{label: "Class", value: b.DefinitionMetadata.Class, truncEnd: true})
+		}
+		fields = append(fields, detailField{label: "Alias", value: displayNameFromAlias(b.Alias, b.Name), truncEnd: true})
+		if m.promoteCursor < len(m.promoteTargetEnvs) {
+			sourceEnvName := envNameForID(est.Registry.Environments, b.Environment.ID)
+			targetEnvName := m.promoteTargetEnvs[m.promoteCursor].Name
+			fields = append(fields, detailField{label: "Promote", value: sourceEnvName + " → " + targetEnvName, truncEnd: true})
+		}
+		fields = append(fields, detailField{}) // separator
+		fields = append(fields, detailField{label: "Source", value: b.Source})
+		hostPath := project.PrjAbsPath(est.Root.HostDir(), b.Info.HostPath()).String()
+		if hostPath != "" {
+			fields = append(fields, detailField{label: "Config", value: hostPath})
+		}
+		detailBox = renderDetailBox(innerWidth, "Bundle Instance Details", fields)
+	}
+	var headerParts []string
+	if m.promoteFilter.editing || m.promoteFilter.input.Value() != "" {
+		filterStyle := lipgloss.NewStyle().Foreground(colorTextMuted)
+		headerParts = append(headerParts, filterStyle.Render(m.promoteFilter.input.View()), "")
+	}
+	headerParts = append(headerParts, detailBox, "")
+	return lipgloss.JoinVertical(lipgloss.Left, headerParts...)
+}
+
+// promotePageCursor returns the new item-list index for a PgUp/PgDn jump
+// over the Promote bundle list. See reconfigPageCursor for the algorithm.
+func promotePageCursor(items []renderedItem, cursor, availableHeight, sep int, down bool) int {
+	if len(items) == 0 {
+		return 0
+	}
+	start, end := scrollWindowVar(cursor, items, availableHeight, sep)
+	if down {
+		for i := end; i < len(items); i++ {
+			if items[i].selectable {
+				return i
+			}
+		}
+		return lastSelectableIndex(items)
+	}
+	for i := start - 1; i >= 0; i-- {
+		if items[i].selectable {
+			return i
+		}
+	}
+	return firstSelectableIndex(items)
+}
+
+// promoteCursorForItem converts an index into the rendered items list back
+// into a bundle-index (m.promoteCursor space) by counting selectable items
+// before it.
+func promoteCursorForItem(items []renderedItem, itemIdx int) int {
+	rank := 0
+	for i := 0; i < itemIdx; i++ {
+		if items[i].selectable {
+			rank++
+		}
+	}
+	return rank
 }
 
 // renderPromoteGroupedItems renders grouped promote bundles as a flat list of renderedItems.
@@ -402,12 +538,12 @@ func (m Model) renderPromoteGroupedItems(groups []bundleGroup, cursor, contentWi
 
 		// Empty line before group (except first)
 		if gi > 0 {
-			items = append(items, renderedItem{content: "", height: 1})
+			items = append(items, renderedItem{content: "", height: 1, selectable: false})
 		}
 
 		// Group header: non-selectable
 		headerLine := headerNameStyle.Render(g.name) + " " + versionStyle.Render("v"+b0.DefinitionMetadata.Version)
-		items = append(items, renderedItem{content: lineStyle.Render(headerLine), height: 1})
+		items = append(items, renderedItem{content: lineStyle.Render(headerLine), height: 1, selectable: false})
 
 		// Instance rows
 		for i, b := range g.bundles {
@@ -435,7 +571,7 @@ func (m Model) renderPromoteGroupedItems(groups []bundleGroup, cursor, contentWi
 				line += envStyle.Render(sourceEnvName + " → " + targetEnvName)
 			}
 
-			items = append(items, renderedItem{content: lineStyle.Render(line), height: 1})
+			items = append(items, renderedItem{content: lineStyle.Render(line), height: 1, selectable: true})
 		}
 	}
 
