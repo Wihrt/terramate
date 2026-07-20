@@ -20,7 +20,7 @@ import (
 // TextWidget wraps a textinput.Model for single-line text inputs.
 // This can be either a string or a number.
 type TextWidget struct {
-	wctx          *WidgetContext
+	baseWidget
 	valueType     typeschema.Type
 	defaultValue  cty.Value
 	textInput     textinput.Model
@@ -46,16 +46,11 @@ func NewTextWidget(wctx *WidgetContext, valueType typeschema.Type) *TextWidget {
 	}
 
 	return &TextWidget{
-		wctx:       wctx,
+		baseWidget: baseWidget{wctx: wctx},
 		valueType:  valueType,
 		textInput:  ti,
 		numberMode: numberMode,
 	}
-}
-
-// WidgetContext returns the widget's context.
-func (w *TextWidget) WidgetContext() *WidgetContext {
-	return w.wctx
 }
 
 // Prepare initializes the widget for a new editing session.
@@ -140,25 +135,17 @@ func (w *TextWidget) ForwardMsg(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
-// AcceptSubFormResult is a no-op; text widgets do not use sub-forms.
-func (w *TextWidget) AcceptSubFormResult(SubFormResult) bool { return true }
-
 // BoolWidget provides a Yes/No toggle.
 type BoolWidget struct {
-	wctx   *WidgetContext
+	baseWidget
 	cursor bool
 }
 
 // NewBoolWidget creates a Yes/No toggle widget.
 func NewBoolWidget(wctx *WidgetContext) *BoolWidget {
 	return &BoolWidget{
-		wctx: wctx,
+		baseWidget: baseWidget{wctx: wctx},
 	}
-}
-
-// WidgetContext returns the widget's context.
-func (w *BoolWidget) WidgetContext() *WidgetContext {
-	return w.wctx
 }
 
 // Prepare initializes the widget for a new editing session.
@@ -220,17 +207,9 @@ func (w *BoolWidget) FormatDisplay() string {
 	return ""
 }
 
-// ForwardMsg is a no-op; bool widgets have no underlying input component.
-func (w *BoolWidget) ForwardMsg(tea.Msg) tea.Cmd {
-	return nil
-}
-
-// AcceptSubFormResult is a no-op; bool widgets do not use sub-forms.
-func (w *BoolWidget) AcceptSubFormResult(SubFormResult) bool { return true }
-
 // MultilineWidget wraps a textarea.Model for multi-line text inputs.
 type MultilineWidget struct {
-	wctx          *WidgetContext
+	baseWidget
 	defaultValue  cty.Value
 	textArea      textarea.Model
 	validationErr error
@@ -255,14 +234,9 @@ func NewMultilineWidget(wctx *WidgetContext) *MultilineWidget {
 	ta.BlurredStyle.Text = lipgloss.NewStyle().Foreground(colorTextMuted)
 
 	return &MultilineWidget{
-		wctx:     wctx,
-		textArea: ta,
+		baseWidget: baseWidget{wctx: wctx},
+		textArea:   ta,
 	}
-}
-
-// WidgetContext returns the widget's context.
-func (w *MultilineWidget) WidgetContext() *WidgetContext {
-	return w.wctx
 }
 
 // Prepare initializes the widget for a new editing session.
@@ -409,9 +383,6 @@ func (w *MultilineWidget) ForwardMsg(msg tea.Msg) tea.Cmd {
 	w.textArea, cmd = w.textArea.Update(msg)
 	return cmd
 }
-
-// AcceptSubFormResult is a no-op; multiline widgets do not use sub-forms.
-func (w *MultilineWidget) AcceptSubFormResult(SubFormResult) bool { return true }
 
 // ---------------------------------------------------------------------------
 // Helpers

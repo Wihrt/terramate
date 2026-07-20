@@ -50,6 +50,22 @@ type InputWidget interface {
 	AcceptSubFormResult(result SubFormResult) bool
 }
 
+// baseWidget carries the widget context and the default implementations of
+// the InputWidget methods most widgets share. Widgets embed it and override
+// only the methods they actually customize.
+type baseWidget struct {
+	wctx *WidgetContext
+}
+
+// WidgetContext returns the widget's context.
+func (w *baseWidget) WidgetContext() *WidgetContext { return w.wctx }
+
+// ForwardMsg ignores forwarded messages by default.
+func (w *baseWidget) ForwardMsg(tea.Msg) tea.Cmd { return nil }
+
+// AcceptSubFormResult accepts any sub-form result by default.
+func (w *baseWidget) AcceptSubFormResult(SubFormResult) bool { return true }
+
 // SubFormResult carries the output of a completed sub-form back to its
 // parent widget.
 type SubFormResult struct {

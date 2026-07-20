@@ -16,7 +16,7 @@ import (
 // It signals WidgetNeedSubForm to open a nested form for editing the object's
 // attributes, since objects use the full InputsForm for their sub-inputs.
 type ObjectWidget struct {
-	wctx    *WidgetContext
+	baseWidget
 	objType *typeschema.ObjectType
 
 	// SubFormRequest is populated when the widget signals WidgetNeedSubForm.
@@ -26,14 +26,9 @@ type ObjectWidget struct {
 // NewObjectWidget creates a widget for editing a structured object via a nested sub-form.
 func NewObjectWidget(wctx *WidgetContext, objType *typeschema.ObjectType) *ObjectWidget {
 	return &ObjectWidget{
-		wctx:    wctx,
-		objType: objType,
+		baseWidget: baseWidget{wctx: wctx},
+		objType:    objType,
 	}
-}
-
-// WidgetContext returns the widget's context.
-func (w *ObjectWidget) WidgetContext() *WidgetContext {
-	return w.wctx
 }
 
 // Prepare initializes the widget for a new editing session.
@@ -111,11 +106,6 @@ func (w *ObjectWidget) FormatDisplay() string {
 		return "<not set>"
 	}
 	return FormatDisplayValue(val, w.objType)
-}
-
-// ForwardMsg is a no-op; object widgets have no underlying input component.
-func (w *ObjectWidget) ForwardMsg(tea.Msg) tea.Cmd {
-	return nil
 }
 
 // AcceptSubFormResult integrates a completed sub-form result into the object value.

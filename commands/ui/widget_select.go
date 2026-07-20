@@ -13,7 +13,7 @@ import (
 
 // SelectWidget provides a cursor-based single-select option list.
 type SelectWidget struct {
-	wctx    *WidgetContext
+	baseWidget
 	options []InputOption
 	cursor  int
 	value   cty.Value
@@ -22,14 +22,9 @@ type SelectWidget struct {
 // NewSelectWidget creates a single-select option list widget.
 func NewSelectWidget(wctx *WidgetContext) *SelectWidget {
 	return &SelectWidget{
-		wctx:  wctx,
-		value: cty.NilVal,
+		baseWidget: baseWidget{wctx: wctx},
+		value:      cty.NilVal,
 	}
-}
-
-// WidgetContext returns the widget's context.
-func (w *SelectWidget) WidgetContext() *WidgetContext {
-	return w.wctx
 }
 
 // Prepare initializes the widget for a new editing session.
@@ -115,19 +110,9 @@ func (w *SelectWidget) FormatDisplay() string {
 	return ctyToDisplayString(val)
 }
 
-// ForwardMsg is a no-op; select widgets have no underlying input component.
-func (w *SelectWidget) ForwardMsg(tea.Msg) tea.Cmd {
-	return nil
-}
-
-// AcceptSubFormResult is a no-op; select widgets do not use sub-forms.
-func (w *SelectWidget) AcceptSubFormResult(SubFormResult) bool {
-	return true
-}
-
 // MultiSelectWidget provides a cursor-based multi-select with checkboxes.
 type MultiSelectWidget struct {
-	wctx          *WidgetContext
+	baseWidget
 	options       []InputOption
 	selected      map[int]bool
 	cursor        int
@@ -138,15 +123,10 @@ type MultiSelectWidget struct {
 // NewMultiSelectWidget creates a multi-select option list widget with checkboxes.
 func NewMultiSelectWidget(wctx *WidgetContext) *MultiSelectWidget {
 	return &MultiSelectWidget{
-		wctx:     wctx,
-		selected: map[int]bool{},
-		value:    cty.NilVal,
+		baseWidget: baseWidget{wctx: wctx},
+		selected:   map[int]bool{},
+		value:      cty.NilVal,
 	}
-}
-
-// WidgetContext returns the widget's context.
-func (w *MultiSelectWidget) WidgetContext() *WidgetContext {
-	return w.wctx
 }
 
 // Prepare initializes the widget for a new editing session.
@@ -270,19 +250,9 @@ func (w *MultiSelectWidget) FormatDisplay() string {
 	return ctyToDisplayString(val)
 }
 
-// ForwardMsg is a no-op; multi-select widgets have no underlying input component.
-func (w *MultiSelectWidget) ForwardMsg(tea.Msg) tea.Cmd {
-	return nil
-}
-
-// AcceptSubFormResult is a no-op; multi-select widgets do not use sub-forms.
-func (w *MultiSelectWidget) AcceptSubFormResult(SubFormResult) bool {
-	return true
-}
-
 // BundleRefWidget lets the user pick an existing created bundle or create a new one.
 type BundleRefWidget struct {
-	wctx            *WidgetContext
+	baseWidget
 	classID         string
 	cursor          int
 	value           cty.Value
@@ -292,15 +262,10 @@ type BundleRefWidget struct {
 // NewBundleRefWidget creates a widget for selecting or creating a bundle reference.
 func NewBundleRefWidget(wctx *WidgetContext, classID string) *BundleRefWidget {
 	return &BundleRefWidget{
-		wctx:    wctx,
-		classID: classID,
-		value:   cty.NilVal,
+		baseWidget: baseWidget{wctx: wctx},
+		classID:    classID,
+		value:      cty.NilVal,
 	}
-}
-
-// WidgetContext returns the widget's context.
-func (w *BundleRefWidget) WidgetContext() *WidgetContext {
-	return w.wctx
 }
 
 // Prepare initializes the widget for a new editing session.
@@ -413,14 +378,6 @@ func (w *BundleRefWidget) FormatDisplay() string {
 	}
 	return alias
 }
-
-// ForwardMsg is a no-op; bundle-ref widgets have no underlying input component.
-func (w *BundleRefWidget) ForwardMsg(tea.Msg) tea.Cmd {
-	return nil
-}
-
-// AcceptSubFormResult is a no-op; bundle-ref widgets do not use sub-forms.
-func (w *BundleRefWidget) AcceptSubFormResult(SubFormResult) bool { return true }
 
 // ---------------------------------------------------------------------------
 // Shared helpers
