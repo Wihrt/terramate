@@ -34,7 +34,7 @@ type Spec struct {
 }
 
 // Name returns the name of the command.
-func (s *Spec) Name() string { return "prompt" }
+func (s *Spec) Name() string { return "ui" }
 
 // Requirements returns the requirements of the command.
 func (s *Spec) Requirements(context.Context, commands.CLI) any { return commands.RequireEngine() }

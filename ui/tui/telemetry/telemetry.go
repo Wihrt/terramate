@@ -48,7 +48,7 @@ type Message struct {
 	PlatformUser string `json:"platform_user,omitempty"`
 
 	Auth AuthType `json:"auth,omitempty"`
-	// AuthUser is the TMC user UUID.
+	// AuthUser is the authenticated user UUID.
 	AuthUser string `json:"auth_user,omitempty"`
 
 	Signature string `json:"signature,omitempty"`
