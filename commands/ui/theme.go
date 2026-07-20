@@ -4,8 +4,6 @@
 package ui
 
 import (
-	"strings"
-
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -41,14 +39,3 @@ var (
 	colorScrollTrack = lipgloss.AdaptiveColor{Light: "#E5E7EB", Dark: "#1F2937"}
 	colorScrollThumb = lipgloss.AdaptiveColor{Light: "#9CA3AF", Dark: "#6B7280"}
 )
-
-func renderTerramateLogo1() string {
-	logoStyle := lipgloss.NewStyle().Foreground(colorText)
-	lines := []string{
-		" █▙▗▖   ▗▖▟█",
-		" ▄▄▐█████▌▄▄",
-		" ▀▀▝▜███▛▘▀▀",
-		" ▝█  ▝█▘  █▘",
-	}
-	return logoStyle.Render(strings.Join(lines, "\n"))
-}
