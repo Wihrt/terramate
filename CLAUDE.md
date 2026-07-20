@@ -30,9 +30,9 @@ make build/terramate    # Build CLI only
 make build/terramate-ls # Build language server only
 ```
 
-> `mise` is the task runner pinning tool versions (`mise.toml`, Go 1.25.8). Every make
-> target has a mise equivalent: `mise run build`, `mise run test`, etc. (`mise tasks`
-> to list them).
+> `mise` is the task runner pinning tool versions (`mise.toml`, Go 1.25.8). Common make
+> targets (build, test, lint, generate, fmt) have mise equivalents: `mise run build`, `mise run test`, etc. (`mise tasks`
+> to list all available tasks).
 
 ### Test
 ```bash

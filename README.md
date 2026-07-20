@@ -6,7 +6,7 @@
 > **Differences from upstream:**
 >
 > - **Terramate Cloud support has been removed** — this fork is fully standalone,
->   no SaaS integration, no telemetry endpoint.
+>   no SaaS integration; anonymous usage telemetry to `analytics.terramate.io` remains enabled by default and can be disabled via `terramate.config.telemetry.enabled = false`.
 > - **Interactive TUI added** — `terramate ui` provides an interactive terminal UI
 >   to scaffold, reconfigure and promote infrastructure bundles.
 > - **Bundles, components and packages** — define reusable infrastructure bundles
