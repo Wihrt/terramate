@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/terramate-io/terramate/config"
@@ -76,71 +75,32 @@ func (m *Model) applyFlatBundleFilter() {
 	m.bundleSelectErr = ""
 }
 
-func (m Model) updateCreateSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.flatBundleFilter.editing {
-		switch {
-		case key.Matches(msg, keys.Escape):
-			m.flatBundleFilter.input.SetValue("")
-			m.flatBundleFilter.input.Blur()
-			m.flatBundleFilter.editing = false
-			m.applyFlatBundleFilter()
-			return m, nil
-		case key.Matches(msg, keys.Enter):
-			m.flatBundleFilter.input.Blur()
-			m.flatBundleFilter.editing = false
-			return m, nil
-		}
-		var cmd tea.Cmd
-		m.flatBundleFilter.input, cmd = m.flatBundleFilter.input.Update(msg)
-		m.applyFlatBundleFilter()
-		return m, cmd
-	}
-
-	switch {
-	case key.Matches(msg, keys.Escape):
-		if m.flatBundleFilter.input.Value() != "" {
-			m.flatBundleFilter.input.SetValue("")
-			m.applyFlatBundleFilter()
-			return m, nil
-		}
-		m.viewState = ViewOverview
-		return m, nil
-
-	case msg.String() == "/":
-		m.flatBundleFilter.editing = true
-		m.flatBundleFilter.input.Width = m.effectiveWidth() - 8
-		m.flatBundleFilter.input.Focus()
-		return m, textinput.Blink
-
-	case key.Matches(msg, keys.PgUp), key.Matches(msg, keys.PgDn):
-		down := key.Matches(msg, keys.PgDn)
-		innerWidth := m.effectiveWidth() - 4
-		contentWidth := innerWidth - 4 // scrollbarGutter, matches renderFlatBundleList
-		availableHeight := m.effectiveContentHeight() - lipgloss.Height(m.flatBundleListHeader(innerWidth))
+// createSelectListViewCfg configures the shared list engine for the flat
+// Create-Select view: no env cycling, blank-line separated items, and an
+// inline error that clears on cursor movement (see selectFlatBundle).
+var createSelectListViewCfg = listViewConfig{
+	breadcrumb: func(_ *Model) string { return "Scaffold Bundle Instance" },
+	helpLine:   func(m *Model) string { return m.flatBundleFilterHelp() },
+	listHeader: func(m *Model, innerWidth int) string { return m.flatBundleListHeader(innerWidth) },
+	buildItems: func(m *Model, contentWidth int) (int, []renderedItem) {
 		items := buildFlatBundleItems(m.flatBundles, m.flatBundleCursor, contentWidth)
-		m.flatBundleCursor = pageCursor(items, m.flatBundleCursor, availableHeight, 1, down)
-		m.bundleSelectErr = ""
-		return m, nil
+		return m.flatBundleCursor, items
+	},
+	itemCount:    func(m *Model) int { return len(m.flatBundles) },
+	cursor:       func(m *Model) int { return m.flatBundleCursor },
+	setCursor:    func(m *Model, c int) { m.flatBundleCursor = c },
+	textFilter:   func(m *Model) *textFilter { return &m.flatBundleFilter },
+	applyFilter:  func(m *Model) { m.applyFlatBundleFilter() },
+	envFilter:    func(_ *Model) *envFilterCycle { return nil },
+	onCursorMove: func(m *Model) { m.bundleSelectErr = "" },
+	onEnter:      func(m *Model) (tea.Model, tea.Cmd) { return m.selectFlatBundle() },
+	exit:         func(m *Model) { m.viewState = ViewOverview },
+	sep:          1,
+	grouped:      false,
+}
 
-	case key.Matches(msg, keys.Up):
-		if m.flatBundleCursor > 0 {
-			m.flatBundleCursor--
-			m.bundleSelectErr = ""
-		}
-		return m, nil
-
-	case key.Matches(msg, keys.Down):
-		if m.flatBundleCursor < len(m.flatBundles)-1 {
-			m.flatBundleCursor++
-			m.bundleSelectErr = ""
-		}
-		return m, nil
-
-	case key.Matches(msg, keys.Enter):
-		return m.selectFlatBundle()
-	}
-
-	return m, nil
+func (m Model) updateCreateSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	return m.updateSelectView(createSelectListViewCfg, msg)
 }
 
 func (m Model) selectFlatBundle() (tea.Model, tea.Cmd) {
@@ -505,39 +465,7 @@ func (m Model) renderCreateEnvSelectView() string {
 // --- Flat bundle list rendering ---
 
 func (m Model) renderBundleSelectView() string {
-	panelWidth := m.effectiveWidth()
-	innerWidth := panelWidth - 4
-
-	borderStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorBorderFocus).
-		Padding(1, 2).
-		Width(panelWidth).
-		Height(m.effectiveContentHeight() + 2)
-
-	helpStyle := lipgloss.NewStyle().
-		Foreground(colorTextMuted).
-		Width(panelWidth)
-
-	contentStyle := lipgloss.NewStyle().
-		Width(innerWidth)
-
-	title := m.renderHeader("Scaffold Bundle Instance")
-
-	help := helpStyle.Render(m.finalHelpText(m.flatBundleFilterHelp()))
-
-	content := m.renderFlatBundleList(innerWidth)
-
-	section := borderStyle.Render(contentStyle.Render(content))
-
-	all := lipgloss.JoinVertical(
-		lipgloss.Left,
-		title,
-		section,
-		help,
-	)
-
-	return lipgloss.NewStyle().Padding(1, 2).Render(all)
+	return m.renderSelectView(createSelectListViewCfg)
 }
 
 // flatBundleFilterHelp returns the help-line hint reflecting the current
@@ -562,36 +490,6 @@ func splitNameVersion(s string) (string, string) {
 		}
 	}
 	return s, ""
-}
-
-func (m Model) renderFlatBundleList(innerWidth int) string {
-	scrollbarGutter := 4
-	contentWidth := innerWidth - scrollbarGutter
-
-	header := m.flatBundleListHeader(innerWidth)
-	headerHeight := lipgloss.Height(header)
-	availableHeight := m.effectiveContentHeight() - headerHeight
-
-	items := buildFlatBundleItems(m.flatBundles, m.flatBundleCursor, contentWidth)
-
-	start, end := scrollWindowVar(m.flatBundleCursor, items, availableHeight, 1)
-
-	var sb strings.Builder
-	for i := start; i < end; i++ {
-		if i > start {
-			sb.WriteString("\n\n")
-		}
-		sb.WriteString(items[i].content)
-	}
-	listContent := sb.String()
-
-	if len(m.flatBundles) > end-start {
-		trackHeight := lipgloss.Height(listContent)
-		scrollbar := renderScrollbar(len(m.flatBundles), end-start, start, trackHeight)
-		listContent = lipgloss.JoinHorizontal(lipgloss.Top, listContent, " ", scrollbar, "  ")
-	}
-
-	return lipgloss.JoinVertical(lipgloss.Left, header, listContent)
 }
 
 // flatBundleListHeader renders the detail box (and any inline error) shown
