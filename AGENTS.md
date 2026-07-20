@@ -9,15 +9,23 @@ This file provides guidance for AI coding agents working on the Terramate projec
 **Terramate** is an orchestration, code generation, and change management tool for Infrastructure as Code (IaC), with first-class support for Terraform, OpenTofu, and Terragrunt.
 
 **Repository Structure**:
-- `/cmd/` - Main binaries (terramate CLI, terramate-ls language server)
+- `/cmd/` - Main binaries (terramate CLI, terramate-ls language server, tgdeps)
 - `/ls/` - Language Server Protocol implementation
 - `/hcl/` - HCL parsing and evaluation
-- `/config/` - Configuration management
-- `/stack/` - Stack orchestration
+- `/config/` - Configuration management (incl. bundles)
+- `/typeschema/` - Type system for bundle/component inputs
+- `/engine/` - Orchestration engine
+- `/commands/` - CLI command implementations (incl. `commands/ui/`, the interactive TUI)
+- `/ui/tui/` - CLI bootstrap (flag parsing, command dispatch)
+- `/stack/` - Stack lifecycle
+- `/generate/` - Code generation
 - `/e2etests/` - End-to-end tests
 - `/test/` - Test utilities
 
-**Language**: Go 1.24+
+**Fork note**: this repo is a fork of `terramate-io/terramate` with Terramate Cloud
+removed, an interactive TUI (`terramate ui`) and bundles/components/packages added.
+
+**Language**: Go 1.25.8 (pinned in `go.mod` and `mise.toml`)
 **License**: MPL-2.0
 
 ---
@@ -27,11 +35,11 @@ This file provides guidance for AI coding agents working on the Terramate projec
 ### Prerequisites
 
 ```bash
-# Install all dependencies using the ASDF package manager
-asdf install
+# Install all dependencies using mise (https://mise.jdx.dev/)
+mise install
 
 # Check versions
-go version  # Should be 1.24+
+go version  # Should be 1.25.x
 make --version
 ```
 
@@ -39,12 +47,14 @@ make --version
 
 ```bash
 # Build all binaries
-make build
+make build          # or: mise run build
 
 # Output:
 # - bin/terramate (CLI)
 # - bin/terramate-ls (Language Server)
-# - bin/helper (test helper)
+
+# Test helper binary (built separately, needed by e2e tests):
+make test/helper    # -> bin/helper
 ```
 
 ### Development
