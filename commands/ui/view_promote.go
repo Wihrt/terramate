@@ -66,8 +66,8 @@ func (m Model) updatePromoteSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		availableHeight := m.effectiveContentHeight() - lipgloss.Height(m.promoteListHeader(innerWidth))
 		groups := groupBundles(m.promoteBundles)
 		selectedItemIdx, items := m.renderPromoteGroupedItems(groups, m.promoteCursor, contentWidth)
-		newItemIdx := promotePageCursor(items, selectedItemIdx, availableHeight, 0, down)
-		m.promoteCursor = promoteCursorForItem(items, newItemIdx)
+		newItemIdx := pageCursor(items, selectedItemIdx, availableHeight, 0, down)
+		m.promoteCursor = cursorForItem(items, newItemIdx)
 		return m, nil
 
 	case key.Matches(msg, keys.Up):
@@ -467,42 +467,6 @@ func (m Model) promoteListHeader(innerWidth int) string {
 	}
 	headerParts = append(headerParts, detailBox, "")
 	return lipgloss.JoinVertical(lipgloss.Left, headerParts...)
-}
-
-// promotePageCursor returns the new item-list index for a PgUp/PgDn jump
-// over the Promote bundle list. See reconfigPageCursor for the algorithm.
-func promotePageCursor(items []renderedItem, cursor, availableHeight, sep int, down bool) int {
-	if len(items) == 0 {
-		return 0
-	}
-	start, end := scrollWindowVar(cursor, items, availableHeight, sep)
-	if down {
-		for i := end; i < len(items); i++ {
-			if items[i].selectable {
-				return i
-			}
-		}
-		return lastSelectableIndex(items)
-	}
-	for i := start - 1; i >= 0; i-- {
-		if items[i].selectable {
-			return i
-		}
-	}
-	return firstSelectableIndex(items)
-}
-
-// promoteCursorForItem converts an index into the rendered items list back
-// into a bundle-index (m.promoteCursor space) by counting selectable items
-// before it.
-func promoteCursorForItem(items []renderedItem, itemIdx int) int {
-	rank := 0
-	for i := 0; i < itemIdx; i++ {
-		if items[i].selectable {
-			rank++
-		}
-	}
-	return rank
 }
 
 // renderPromoteGroupedItems renders grouped promote bundles as a flat list of renderedItems.

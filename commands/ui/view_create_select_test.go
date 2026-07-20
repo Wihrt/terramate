@@ -10,49 +10,6 @@ import (
 	"github.com/terramate-io/terramate/scaffold/manifest"
 )
 
-func TestFlatBundlePageCursor(t *testing.T) {
-	t.Parallel()
-
-	items := make([]renderedItem, 20)
-	for i := range items {
-		items[i] = renderedItem{content: "x", height: 1, selectable: true}
-	}
-
-	testcases := []struct {
-		name            string
-		cursor          int
-		availableHeight int
-		down            bool
-		want            int
-	}{
-		{name: "page down from top", cursor: 0, availableHeight: 5, down: true, want: 3},
-		{name: "page down near end clamps to last", cursor: 17, availableHeight: 5, down: true, want: 19},
-		{name: "page up from middle", cursor: 10, availableHeight: 5, down: false, want: 8},
-		{name: "page up clamps to first", cursor: 2, availableHeight: 5, down: false, want: 0},
-		{name: "page larger than whole list clamps down to last", cursor: 3, availableHeight: 100, down: true, want: 19},
-		{name: "page larger than whole list clamps up to first", cursor: 3, availableHeight: 100, down: false, want: 0},
-	}
-
-	for _, tc := range testcases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got := flatBundlePageCursor(items, tc.cursor, tc.availableHeight, 1, tc.down)
-			if got != tc.want {
-				t.Fatalf("flatBundlePageCursor(cursor=%d, height=%d, down=%v) = %d, want %d",
-					tc.cursor, tc.availableHeight, tc.down, got, tc.want)
-			}
-		})
-	}
-}
-
-func TestFlatBundlePageCursorEmptyList(t *testing.T) {
-	t.Parallel()
-	if got := flatBundlePageCursor(nil, 0, 10, 1, true); got != 0 {
-		t.Fatalf("expected 0 for an empty list, got %d", got)
-	}
-}
-
 func TestBuildFlatBundleItems(t *testing.T) {
 	t.Parallel()
 

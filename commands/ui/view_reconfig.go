@@ -4,9 +4,7 @@
 package ui
 
 import (
-	"cmp"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -68,8 +66,8 @@ func (m Model) updateReconfigSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		availableHeight := m.effectiveContentHeight() - lipgloss.Height(m.reconfigListHeader(innerWidth))
 		groups := groupBundles(m.reconfigBundles)
 		selectedItemIdx, items := m.renderGroupedBundleItems(groups, m.reconfigCursor, contentWidth)
-		newItemIdx := reconfigPageCursor(items, selectedItemIdx, availableHeight, 0, down)
-		m.reconfigCursor = reconfigCursorForItem(items, newItemIdx)
+		newItemIdx := pageCursor(items, selectedItemIdx, availableHeight, 0, down)
+		m.reconfigCursor = cursorForItem(items, newItemIdx)
 		return m, nil
 
 	case key.Matches(msg, keys.Up):
@@ -280,66 +278,6 @@ func (m Model) buildReconfigBundles() []*config.Bundle {
 	return sorted
 }
 
-type bundleGroup struct {
-	name    string
-	detail  string
-	bundles []*config.Bundle
-	offsets []int // cursor positions in the flat list
-}
-
-// groupBundles groups bundles by definition identity (name + version + source),
-// sorted alphabetically by group name, with instances sorted by alias within each group.
-func groupBundles(bundles []*config.Bundle) []bundleGroup {
-	var groups []bundleGroup
-	seen := map[string]int{}
-
-	for i, b := range bundles {
-		key := b.DefinitionMetadata.Name + "\x00" + b.DefinitionMetadata.Version + "\x00" + b.Source
-		if gIdx, ok := seen[key]; ok {
-			groups[gIdx].bundles = append(groups[gIdx].bundles, b)
-			groups[gIdx].offsets = append(groups[gIdx].offsets, i)
-			continue
-		}
-		seen[key] = len(groups)
-		groups = append(groups, bundleGroup{
-			name:    b.DefinitionMetadata.Name,
-			detail:  fmt.Sprintf("v%s from %s", b.DefinitionMetadata.Version, b.Source),
-			bundles: []*config.Bundle{b},
-			offsets: []int{i},
-		})
-	}
-
-	// Sort groups deterministically by name, then detail (version+source) as tiebreaker
-	slices.SortFunc(groups, func(a, b bundleGroup) int {
-		if c := cmp.Compare(a.name, b.name); c != 0 {
-			return c
-		}
-		return cmp.Compare(a.detail, b.detail)
-	})
-
-	// Sort instances within each group by alias
-	for i := range groups {
-		g := &groups[i]
-		indices := make([]int, len(g.bundles))
-		for j := range indices {
-			indices[j] = j
-		}
-		slices.SortFunc(indices, func(a, b int) int {
-			return cmp.Compare(g.bundles[a].Alias, g.bundles[b].Alias)
-		})
-		sortedBundles := make([]*config.Bundle, len(g.bundles))
-		sortedOffsets := make([]int, len(g.offsets))
-		for j, idx := range indices {
-			sortedBundles[j] = g.bundles[idx]
-			sortedOffsets[j] = g.offsets[idx]
-		}
-		g.bundles = sortedBundles
-		g.offsets = sortedOffsets
-	}
-
-	return groups
-}
-
 // renderGroupedBundleItems renders grouped bundles as a flat list of renderedItems.
 // Group headers are non-selectable separator items, instances are individual items.
 // Returns the index of the selected item in the flat list, suitable for scrollWindowVar.
@@ -518,44 +456,6 @@ func (m Model) reconfigListHeader(innerWidth int) string {
 	}
 	headerParts = append(headerParts, detailBox, "")
 	return lipgloss.JoinVertical(lipgloss.Left, headerParts...)
-}
-
-// reconfigPageCursor returns the new item-list index for a PgUp/PgDn jump
-// over the Reconfigure bundle list. down selects PgDn vs PgUp. cursor and
-// the return value are indices into items (as returned by
-// renderGroupedBundleItems), not bundle indices — see reconfigCursorForItem.
-func reconfigPageCursor(items []renderedItem, cursor, availableHeight, sep int, down bool) int {
-	if len(items) == 0 {
-		return 0
-	}
-	start, end := scrollWindowVar(cursor, items, availableHeight, sep)
-	if down {
-		for i := end; i < len(items); i++ {
-			if items[i].selectable {
-				return i
-			}
-		}
-		return lastSelectableIndex(items)
-	}
-	for i := start - 1; i >= 0; i-- {
-		if items[i].selectable {
-			return i
-		}
-	}
-	return firstSelectableIndex(items)
-}
-
-// reconfigCursorForItem converts an index into the rendered items list back
-// into a bundle-index (m.reconfigCursor space) by counting selectable items
-// before it.
-func reconfigCursorForItem(items []renderedItem, itemIdx int) int {
-	rank := 0
-	for i := 0; i < itemIdx; i++ {
-		if items[i].selectable {
-			rank++
-		}
-	}
-	return rank
 }
 
 func (m Model) renderReconfigInputView() string {
