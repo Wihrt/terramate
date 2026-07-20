@@ -48,6 +48,23 @@ func BundleClassUUIDAwaitKey(class, uuid, envID string) string {
 	return fmt.Sprintf("%s:%s:%s", envID, class, uuid)
 }
 
+// bundleAwaitKey computes the preempt await key for key (an alias, or a UUID
+// when isUUID is true). When classScoped is true the class-scoped variant is
+// used, so bundles sharing the same key but a different class cannot
+// prematurely unblock the waiter.
+func bundleAwaitKey(classScoped, isUUID bool, class, key, envID string) string {
+	switch {
+	case classScoped && isUUID:
+		return BundleClassUUIDAwaitKey(class, key, envID)
+	case classScoped:
+		return BundleClassAliasAwaitKey(class, key, envID)
+	case isUUID:
+		return BundleUUIDAwaitKey(key, envID)
+	default:
+		return BundleAliasAwaitKey(key, envID)
+	}
+}
+
 // BundleAwaitKeys returns all preempt await keys for the given bundle.
 // Each bundle produces both a plain alias/UUID key (for legacy callers) and a
 // class-scoped key so that tm_bundle(class, alias) can wait specifically for a
@@ -102,34 +119,20 @@ func BundleFunc(ctx context.Context, reg *Registry, currentEnv *Environment, use
 
 			var keyKind string
 			var pred func(*Bundle) bool
-			var awaitKey string
 
-			if err := uuid.Validate(key); err == nil {
+			isUUID := uuid.Validate(key) == nil
+			if isUUID {
 				keyKind = "UUID"
 				pred = func(b *Bundle) bool {
 					return b.UUID == key
 				}
-				if useAwait {
-					// Use the class-scoped key so bundles with the same UUID but a
-					// different class cannot prematurely unblock this waiter.
-					awaitKey = BundleClassUUIDAwaitKey(class, key, envID)
-				} else {
-					awaitKey = BundleUUIDAwaitKey(key, envID)
-				}
-
 			} else {
 				keyKind = "alias"
 				pred = func(b *Bundle) bool {
 					return b.Alias == key
 				}
-				if useAwait {
-					// Use the class-scoped key so bundles with the same alias but a
-					// different class cannot prematurely unblock this waiter.
-					awaitKey = BundleClassAliasAwaitKey(class, key, envID)
-				} else {
-					awaitKey = BundleAliasAwaitKey(key, envID)
-				}
 			}
+			awaitKey := bundleAwaitKey(useAwait, isUUID, class, key, envID)
 
 			if useAwait {
 				// This waits until the given preemptKey is ready.
