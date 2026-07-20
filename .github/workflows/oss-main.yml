@@ -31,6 +31,19 @@ jobs:
         with:
           install: true
 
+      # actions/checkout with fetch-depth: 0 does not always come back with every
+      # tag (observed 2026-07-17: a checkout picked up only the floating "dev" tag,
+      # cog bump then saw no prior release tag at all and reset versioning to
+      # 0.1.0, publishing a bogus v0.1.0-dev.1 release). Force-fetch tags and refuse
+      # to bump if no real release tag is visible, instead of silently resetting.
+      - name: verify release tags were fetched
+        run: |
+          git fetch --tags --force origin
+          if ! git tag -l 'v[0-9]*.[0-9]*.[0-9]*' | grep -vq -- '-dev'; then
+            echo "::error::No vX.Y.Z release tags found after fetch — refusing to bump (this would reset versioning to 0.1.0). Check the checkout/fetch step."
+            exit 1
+          fi
+
       - name: configure git identity for the bump commit
         run: |
           git config user.name "github-actions[bot]"
