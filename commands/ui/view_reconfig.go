@@ -5,10 +5,8 @@ package ui
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
@@ -18,87 +16,64 @@ import (
 	"github.com/terramate-io/terramate/typeschema"
 )
 
-func (m Model) updateReconfigSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.reconfigFilter.editing {
-		switch {
-		case key.Matches(msg, keys.Escape):
-			m.reconfigFilter.input.SetValue("")
-			m.reconfigFilter.input.Blur()
-			m.reconfigFilter.editing = false
-			m.applyReconfigFilter()
-			return m, nil
-		case key.Matches(msg, keys.Enter):
-			m.reconfigFilter.input.Blur()
-			m.reconfigFilter.editing = false
-			return m, nil
-		}
-		var cmd tea.Cmd
-		m.reconfigFilter.input, cmd = m.reconfigFilter.input.Update(msg)
-		m.applyReconfigFilter()
-		return m, cmd
+// reconfigEnvTag renders the single [Env] tag annotation of the
+// Reconfigure list rows.
+func reconfigEnvTag(_ *Model, b *config.Bundle, _ int) string {
+	if b.Environment == nil {
+		return ""
 	}
+	envStyle := lipgloss.NewStyle().Foreground(colorTextMuted)
+	return " " + envStyle.Render("["+b.Environment.Name+"]")
+}
 
-	switch {
-	case key.Matches(msg, keys.Escape):
-		if m.reconfigFilter.input.Value() != "" {
-			m.reconfigFilter.input.SetValue("")
-			m.applyReconfigFilter()
-			return m, nil
+// reconfigBreadcrumb builds the Reconfigure title reflecting active filters.
+func (m *Model) reconfigBreadcrumb() string {
+	breadcrumb := "Reconfigure Bundle Instance"
+	if f := m.reconfigEnvFilter.current(); f != nil {
+		if f.envLess {
+			breadcrumb = "Reconfigure Bundle Instance Without Environment"
+		} else {
+			breadcrumb = "Reconfigure Bundle Instance in " + f.label
 		}
-		if m.reconfigEnvFilter.pos >= 0 {
-			m.reconfigEnvFilter.pos = -1
-			m.applyReconfigFilter()
-			return m, nil
-		}
-		m.viewState = ViewOverview
-		return m, nil
+	}
+	if query := m.reconfigFilter.input.Value(); query != "" {
+		breadcrumb += fmt.Sprintf(" — filter: %q", query)
+	}
+	return breadcrumb
+}
 
-	case msg.String() == "/":
-		m.reconfigFilter.editing = true
-		m.reconfigFilter.input.Width = m.effectiveWidth() - 8
-		m.reconfigFilter.input.Focus()
-		return m, textinput.Blink
-
-	case key.Matches(msg, keys.PgUp), key.Matches(msg, keys.PgDn):
-		down := key.Matches(msg, keys.PgDn)
-		innerWidth := m.effectiveWidth() - 4
-		contentWidth := innerWidth - 4 // scrollbarGutter, matches renderReconfigSelectView
-		availableHeight := m.effectiveContentHeight() - lipgloss.Height(m.reconfigListHeader(innerWidth))
-		groups := groupBundles(m.reconfigBundles)
-		selectedItemIdx, items := m.renderGroupedBundleItems(groups, m.reconfigCursor, contentWidth)
-		newItemIdx := pageCursor(items, selectedItemIdx, availableHeight, 0, down)
-		m.reconfigCursor = cursorForItem(items, newItemIdx)
-		return m, nil
-
-	case key.Matches(msg, keys.Up):
-		if m.reconfigCursor > 0 {
-			m.reconfigCursor--
-		}
-		return m, nil
-
-	case key.Matches(msg, keys.Down):
-		if m.reconfigCursor < len(m.reconfigBundles)-1 {
-			m.reconfigCursor++
-		}
-		return m, nil
-
-	case msg.String() == "e":
-		if len(m.reconfigEnvFilter.filters) > 0 {
-			m.reconfigEnvFilter.pos = (m.reconfigEnvFilter.pos + 1) % len(m.reconfigEnvFilter.filters)
-			m.applyReconfigFilter()
-		}
-		return m, nil
-
-	case key.Matches(msg, keys.Enter):
+var reconfigListViewCfg = listViewConfig{
+	breadcrumb: func(m *Model) string { return m.reconfigBreadcrumb() },
+	helpLine: func(m *Model) string {
+		return selectHelpLine(&m.reconfigFilter, &m.reconfigEnvFilter, "show only ")
+	},
+	listHeader: func(m *Model, innerWidth int) string { return m.reconfigListHeader(innerWidth) },
+	buildItems: func(m *Model, contentWidth int) (int, []renderedItem) {
+		return renderGroupedItems(m, groupBundles(m.reconfigBundles), m.reconfigCursor, contentWidth, groupedItemsOpts{annotate: reconfigEnvTag})
+	},
+	itemCount:   func(m *Model) int { return len(m.reconfigBundles) },
+	cursor:      func(m *Model) int { return m.reconfigCursor },
+	setCursor:   func(m *Model, c int) { m.reconfigCursor = c },
+	textFilter:  func(m *Model) *textFilter { return &m.reconfigFilter },
+	applyFilter: func(m *Model) { m.applyReconfigFilter() },
+	envFilter:   func(m *Model) *envFilterCycle { return &m.reconfigEnvFilter },
+	onEnter: func(m *Model) (tea.Model, tea.Cmd) {
 		if m.reconfigCursor < len(m.reconfigBundles) {
 			if err := m.loadReconfigBundle(m.reconfigBundles[m.reconfigCursor]); err != nil {
 				return m.updateError(err)
 			}
 			m.viewState = ViewReconfigInput
-			return m, nil
+			return *m, nil
 		}
-	}
-	return m, nil
+		return *m, nil
+	},
+	exit:    func(m *Model) { m.viewState = ViewOverview },
+	sep:     0,
+	grouped: true,
+}
+
+func (m Model) updateReconfigSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	return m.updateSelectView(reconfigListViewCfg, msg)
 }
 
 // applyReconfigFilter rebuilds the bundle list based on the current filter position.
@@ -232,147 +207,8 @@ func (m Model) buildReconfigBundles() []*config.Bundle {
 	return sorted
 }
 
-// renderGroupedBundleItems renders grouped bundles as a flat list of renderedItems.
-// Group headers are non-selectable separator items, instances are individual items.
-// Returns the index of the selected item in the flat list, suitable for scrollWindowVar.
-func (m Model) renderGroupedBundleItems(groups []bundleGroup, cursor, contentWidth int) (int, []renderedItem) {
-	selectedStyle := lipgloss.NewStyle().Foreground(colorPrimary).Bold(true)
-	headerNameStyle := lipgloss.NewStyle().Bold(true).Foreground(colorText)
-	versionStyle := lipgloss.NewStyle().Foreground(colorTextSubtle)
-	envStyle := lipgloss.NewStyle().Foreground(colorTextMuted)
-
-	lineStyle := lipgloss.NewStyle().Width(contentWidth)
-
-	var items []renderedItem
-	selectedItemIdx := 0
-	visualIdx := 0
-
-	for gi, g := range groups {
-		b0 := g.bundles[0]
-
-		// Empty line before group (except first)
-		if gi > 0 {
-			items = append(items, renderedItem{content: "", height: 1, selectable: false})
-		}
-
-		// Group header: non-selectable
-		headerLine := headerNameStyle.Render(g.name) + " " + versionStyle.Render("v"+b0.DefinitionMetadata.Version)
-		items = append(items, renderedItem{content: lineStyle.Render(headerLine), height: 1, selectable: false})
-
-		// Instance rows
-		for _, b := range g.bundles {
-			isSelected := visualIdx == cursor
-			if isSelected {
-				selectedItemIdx = len(items)
-			}
-			visualIdx++
-
-			displayName := displayNameFromAlias(b.Alias, b.Name)
-			var line string
-			if isSelected {
-				line = selectedStyle.Render("  › " + displayName)
-			} else {
-				line = "    " + displayName
-			}
-			if b.Environment != nil {
-				line += " " + envStyle.Render("["+b.Environment.Name+"]")
-			}
-
-			items = append(items, renderedItem{content: lineStyle.Render(line), height: 1, selectable: true})
-		}
-	}
-
-	return selectedItemIdx, items
-}
-
 func (m Model) renderReconfigSelectView() string {
-	panelWidth := m.effectiveWidth()
-	innerWidth := panelWidth - 4
-	scrollbarGutter := 4 // left gap(1) + scrollbar(1) + right gap(2)
-	contentWidth := innerWidth - scrollbarGutter
-
-	borderStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorBorderFocus).
-		Padding(1, 2).
-		Width(panelWidth).
-		Height(m.effectiveContentHeight() + 2)
-
-	helpStyle := lipgloss.NewStyle().
-		Foreground(colorTextMuted).
-		Width(panelWidth)
-
-	contentStyle := lipgloss.NewStyle().Width(innerWidth)
-
-	breadcrumb := "Reconfigure Bundle Instance"
-	if f := m.reconfigEnvFilter.current(); f != nil {
-		if f.envLess {
-			breadcrumb = "Reconfigure Bundle Instance Without Environment"
-		} else {
-			breadcrumb = "Reconfigure Bundle Instance in " + f.label
-		}
-	}
-	if query := m.reconfigFilter.input.Value(); query != "" {
-		breadcrumb += fmt.Sprintf(" — filter: %q", query)
-	}
-	title := m.renderHeader(breadcrumb)
-
-	header := m.reconfigListHeader(innerWidth)
-	headerHeight := lipgloss.Height(header)
-	availableHeight := m.effectiveContentHeight() - headerHeight
-
-	groups := groupBundles(m.reconfigBundles)
-	selectedGroupIdx, items := m.renderGroupedBundleItems(groups, m.reconfigCursor, contentWidth)
-
-	start, end := scrollWindowVar(selectedGroupIdx, items, availableHeight, 0)
-
-	var sb strings.Builder
-	for i := start; i < end; i++ {
-		if i > start {
-			sb.WriteByte('\n')
-		}
-		sb.WriteString(items[i].content)
-	}
-	listContent := sb.String()
-
-	visibleCount := end - start
-	if len(items) > visibleCount {
-		trackHeight := lipgloss.Height(listContent)
-		scrollbar := renderScrollbar(len(items), visibleCount, start, trackHeight)
-		listContent = lipgloss.JoinHorizontal(lipgloss.Top, listContent, " ", scrollbar, "  ")
-	}
-
-	inner := contentStyle.Render(lipgloss.JoinVertical(lipgloss.Left, header, listContent))
-
-	escLabel := "esc: back"
-	if m.reconfigEnvFilter.pos >= 0 {
-		escLabel = "esc: reset filter"
-	}
-	if m.reconfigFilter.input.Value() != "" {
-		escLabel = "esc: clear filter"
-	}
-	helpParts := escLabel
-	if len(m.reconfigEnvFilter.filters) > 0 {
-		helpParts += " • e: show only " + m.reconfigEnvFilter.nextName()
-	}
-	switch {
-	case m.reconfigFilter.editing:
-		helpParts = "esc: clear • enter: apply"
-	case m.reconfigFilter.input.Value() == "":
-		helpParts += " • /: filter"
-	default:
-		helpParts += " • /: edit filter"
-	}
-	help := helpStyle.Render(m.finalHelpText(helpParts))
-
-	content := lipgloss.JoinVertical(
-		lipgloss.Left,
-		title,
-		borderStyle.Render(inner),
-		help,
-	)
-
-	return lipgloss.NewStyle().Padding(1, 2).Render(content)
+	return m.renderSelectView(reconfigListViewCfg)
 }
 
 // reconfigListHeader renders the detail box shown above the Reconfigure
