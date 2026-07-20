@@ -4,6 +4,7 @@
 package ui
 
 import (
+	"errors"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -172,4 +173,66 @@ func TestInputsFormTabTogglesFocusAndReeditWorks(t *testing.T) {
 	if got != cty.StringVal("one!") {
 		t.Fatalf("expected re-edited value 'one!', got %#v", got)
 	}
+}
+
+// TestGoldenInputsFormViews captures the rendered View() of InputsForm across
+// five representative states, so the upcoming split of inputs_form.go (phase
+// 3d) can be checked against these goldens for regressions.
+//
+// ADJUSTMENT vs the brief: SetValidationError takes an `error`, not a
+// string (inputs_form.go:631: `func (f *InputsForm) SetValidationError(err
+// error)`; callers in view_create.go/view_promote.go/view_reconfig.go all
+// pass a genuine error value) — the brief's snippet calls it with a string
+// literal, which does not compile. Wrapped the fixture message with
+// errors.New instead. The bool-widget Enter sequence in state 3 needed no
+// adjustment: BoolWidget.Update (widget_primitive.go:169-182) confirms
+// whatever w.cursor currently is on tea.KeyEnter (defaulting to false/"No"
+// via Prepare, widget_primitive.go:152-166), so a bare enter() after the
+// first string input does confirm the bool value and advance, exactly as
+// the brief assumed.
+//
+// Second ADJUSTMENT: the brief's state-5 sequence (just one input
+// completed) never renders the error at all. View() (inputs_form.go:1206)
+// only takes the renderSingleCompletedPanel path — the sole place that
+// prints f.validationErr (inputs_form.go:1446-1449) — when
+// f.allInputsDone() is true; otherwise it renders the two-panel
+// active/completed layout, which has no error slot. This matches the real
+// call sites (view_create.go:85, view_promote.go:389, view_reconfig.go:332):
+// they call SetValidationError only after Confirm is pressed on a fully
+// completed form. So state 5 reuses the state-3 "all inputs done" sequence
+// before setting the error, instead of stopping after the first input.
+func TestGoldenInputsFormViews(t *testing.T) {
+	mk := func() InputsForm {
+		f := newTestForm(
+			strInput("name", "Bundle name?"),
+			boolInput("enabled", "Enable the thing?"),
+			strInput("region", "Region?"),
+		)
+		f.PanelWidth = 100
+		f.PanelHeight = 24
+		return f
+	}
+
+	// 1. Fresh form, first input active.
+	f := mk()
+	assertGolden(t, "inputs-form-active-first", f.View())
+
+	// 2. One input completed, second active.
+	f = pressKeys(mk(), runes("my-bundle"), enter())
+	assertGolden(t, "inputs-form-one-completed", f.View())
+
+	// 3. All inputs done: buttons panel.
+	f = pressKeys(mk(), runes("my-bundle"), enter(), enter(), runes("fr-par"), enter())
+	assertGolden(t, "inputs-form-buttons", f.View())
+
+	// 4. Focus on the completed panel (Tab from state 2).
+	f = pressKeys(mk(), runes("my-bundle"), enter(), keyOf(tea.KeyTab))
+	assertGolden(t, "inputs-form-completed-focus", f.View())
+
+	// 5. Validation error banner. The error only renders on the
+	// all-inputs-done (buttons) panel — see the ADJUSTMENT note above — so
+	// this reuses state 3's sequence before setting the error.
+	f = pressKeys(mk(), runes("my-bundle"), enter(), enter(), runes("fr-par"), enter())
+	f.SetValidationError(errors.New("something went wrong: characterization fixture"))
+	assertGolden(t, "inputs-form-validation-error", f.View())
 }
