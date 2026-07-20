@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
 	"github.com/terramate-io/terramate/config"
@@ -40,25 +41,7 @@ func (g *gState) generateBundleStack(bundle *config.Bundle, stackMeta config.Sta
 
 	stackTree, ok := g.root.Lookup(stackMeta.Dir)
 	if ok && stackTree.IsStack() {
-		stackFilePath := filepath.Join(stackMeta.Dir.HostPath(g.root.HostDir()), stack.DefaultFilename)
-		if _, statErr := os.Lstat(stackFilePath); statErr != nil {
-			logger.Debug().Msg("stack already exists but stack.tm.hcl not found: skipping metadata update")
-			stackTree.Node.Components = mergeComponentList(stackTree.Node.Components, stackMeta.Components, bundle.Source)
-			return
-		}
-		logger.Debug().Msg("stack already exists: updating metadata from bundle")
-		changed, err := stack.UpdateMetadata(g.root, stackMeta)
-		if err != nil {
-			report.AddFailure(stackMeta.Dir, err)
-			return
-		}
-		if changed {
-			dirReport := genreport.Dir{}
-			dirReport.AddChangedFile(stack.DefaultFilename)
-			report.AddDirReport(stackMeta.Dir, dirReport)
-		}
-		// attaching its runtime components
-		stackTree.Node.Components = mergeComponentList(stackTree.Node.Components, stackMeta.Components, bundle.Source)
+		g.updateExistingBundleStack(logger, bundle, stackMeta, stackTree, report)
 		return
 	}
 
@@ -67,6 +50,37 @@ func (g *gState) generateBundleStack(bundle *config.Bundle, stackMeta config.Sta
 		return
 	}
 
+	g.createBundleStack(logger, bundle, stackMeta, report)
+}
+
+// updateExistingBundleStack refreshes the stack metadata of an already
+// existing stack from its bundle definition and attaches the bundle's
+// runtime components.
+func (g *gState) updateExistingBundleStack(logger zerolog.Logger, bundle *config.Bundle, stackMeta config.StackMetadata, stackTree *config.Tree, report *genreport.Report) {
+	stackFilePath := filepath.Join(stackMeta.Dir.HostPath(g.root.HostDir()), stack.DefaultFilename)
+	if _, statErr := os.Lstat(stackFilePath); statErr != nil {
+		logger.Debug().Msg("stack already exists but stack.tm.hcl not found: skipping metadata update")
+		attachBundleComponents(stackTree, stackMeta, bundle)
+		return
+	}
+	logger.Debug().Msg("stack already exists: updating metadata from bundle")
+	changed, err := stack.UpdateMetadata(g.root, stackMeta)
+	if err != nil {
+		report.AddFailure(stackMeta.Dir, err)
+		return
+	}
+	if changed {
+		dirReport := genreport.Dir{}
+		dirReport.AddChangedFile(stack.DefaultFilename)
+		report.AddDirReport(stackMeta.Dir, dirReport)
+	}
+	attachBundleComponents(stackTree, stackMeta, bundle)
+}
+
+// createBundleStack creates a new stack on disk from the bundle's stack
+// metadata, loads it into the config tree and attaches the bundle's runtime
+// components.
+func (g *gState) createBundleStack(logger zerolog.Logger, bundle *config.Bundle, stackMeta config.StackMetadata, report *genreport.Report) {
 	watch := make(project.Paths, len(stackMeta.Watch))
 	for i, w := range stackMeta.Watch {
 		watch[i] = project.NewPath(w)
@@ -103,7 +117,7 @@ func (g *gState) generateBundleStack(bundle *config.Bundle, stackMeta config.Sta
 
 	logger.Debug().Msg("stack loaded successfully")
 
-	stackTree, ok = g.root.Lookup(stackMeta.Dir)
+	stackTree, ok := g.root.Lookup(stackMeta.Dir)
 	if !ok {
 		panic(errors.E(errors.ErrInternal, "just created stack %s cannot be loaded", stackMeta.Dir))
 	}
@@ -114,7 +128,12 @@ func (g *gState) generateBundleStack(bundle *config.Bundle, stackMeta config.Sta
 	dirReport.AddCreatedFile(stack.DefaultFilename)
 	report.AddDirReport(stackMeta.Dir, dirReport)
 
-	// attaching its runtime components
+	attachBundleComponents(stackTree, stackMeta, bundle)
+}
+
+// attachBundleComponents attaches the bundle's runtime components to the
+// stack's config node.
+func attachBundleComponents(stackTree *config.Tree, stackMeta config.StackMetadata, bundle *config.Bundle) {
 	stackTree.Node.Components = mergeComponentList(stackTree.Node.Components, stackMeta.Components, bundle.Source)
 }
 
