@@ -45,8 +45,8 @@ func (m Model) updatePromoteSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.applyPromoteFilter()
 			return m, nil
 		}
-		if m.promoteFilterPos >= 0 {
-			m.promoteFilterPos = -1
+		if m.promoteEnvFilter.pos >= 0 {
+			m.promoteEnvFilter.pos = -1
 			m.applyPromoteFilter()
 			return m, nil
 		}
@@ -83,8 +83,8 @@ func (m Model) updatePromoteSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case msg.String() == "e":
-		if len(m.promoteFilters) > 0 {
-			m.promoteFilterPos = (m.promoteFilterPos + 1) % len(m.promoteFilters)
+		if len(m.promoteEnvFilter.filters) > 0 {
+			m.promoteEnvFilter.pos = (m.promoteEnvFilter.pos + 1) % len(m.promoteEnvFilter.filters)
 			m.applyPromoteFilter()
 		}
 		return m, nil
@@ -106,35 +106,6 @@ func (m Model) updatePromoteSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) applyPromoteFilter() {
 	m.promoteBundles, m.promoteTargetEnvs = m.buildAllPromoteBundles()
 	m.promoteCursor = 0
-}
-
-// promoteFilterState holds the free-text filter editing state for the
-// Promote bundle list.
-type promoteFilterState struct {
-	input   textinput.Model
-	editing bool
-}
-
-// newPromoteFilterState creates a fresh, unfocused filter input.
-func newPromoteFilterState() promoteFilterState {
-	ti := textinput.New()
-	ti.Prompt = "/ "
-	ti.CharLimit = 128
-	return promoteFilterState{input: ti}
-}
-
-// promoteBundleMatchesFilter reports whether b's definition name or
-// instance alias contains query (case-insensitive). An empty query matches
-// everything.
-func promoteBundleMatchesFilter(b *config.Bundle, query string) bool {
-	if query == "" {
-		return true
-	}
-	q := strings.ToLower(query)
-	if strings.Contains(strings.ToLower(b.DefinitionMetadata.Name), q) {
-		return true
-	}
-	return strings.Contains(strings.ToLower(displayNameFromAlias(b.Alias, b.Name)), q)
 }
 
 // loadPromoteBundle loads the bundle definition for the given bundle,
@@ -165,23 +136,6 @@ func (m *Model) loadPromoteBundle(b *config.Bundle, targetEnv *config.Environmen
 	m.inputsForm.PanelWidth = m.effectiveWidth()
 	m.inputsForm.PanelHeight = m.effectiveInputsPanelHeight()
 	return nil
-}
-
-// currentPromoteFilter returns the current filter state, or nil if showing all.
-func (m Model) currentPromoteFilter() *envFilterState {
-	if m.promoteFilterPos >= 0 && m.promoteFilterPos < len(m.promoteFilters) {
-		return &m.promoteFilters[m.promoteFilterPos]
-	}
-	return nil
-}
-
-// nextPromoteFilterName returns the short ID of the next filter in the cycle.
-func (m Model) nextPromoteFilterName() string {
-	if len(m.promoteFilters) == 0 {
-		return ""
-	}
-	nextPos := (m.promoteFilterPos + 1) % len(m.promoteFilters)
-	return m.promoteFilters[nextPos].shortID
 }
 
 // buildPromoteFilters precomputes the list of target envs that have promotable bundles.
@@ -244,7 +198,7 @@ func (m Model) buildAllPromoteBundles() ([]*config.Bundle, []*config.Environment
 
 	var bundles []*config.Bundle
 	var targetEnvs []*config.Environment
-	query := strings.TrimSpace(m.promoteFilter.input.Value())
+	query := m.promoteFilter.query()
 
 	for _, targetEnv := range est.Registry.Environments {
 		if targetEnv.PromoteFrom == "" {
@@ -252,7 +206,7 @@ func (m Model) buildAllPromoteBundles() ([]*config.Bundle, []*config.Environment
 		}
 
 		// Apply env filter: only show bundles promotable into the filtered target env
-		if f := m.currentPromoteFilter(); f != nil && f.env.ID != targetEnv.ID {
+		if f := m.promoteEnvFilter.current(); f != nil && f.env.ID != targetEnv.ID {
 			continue
 		}
 
@@ -267,7 +221,7 @@ func (m Model) buildAllPromoteBundles() ([]*config.Bundle, []*config.Environment
 			if len(missingBundleRefs(b, existing)) > 0 {
 				continue
 			}
-			if !promoteBundleMatchesFilter(b, query) {
+			if !bundleMatchesFilter(b, query) {
 				continue
 			}
 			bundles = append(bundles, b)
@@ -366,7 +320,7 @@ func (m Model) renderPromoteSelectView() string {
 	contentStyle := lipgloss.NewStyle().Width(innerWidth)
 
 	breadcrumb := "Promote Bundle Instance"
-	if f := m.currentPromoteFilter(); f != nil {
+	if f := m.promoteEnvFilter.current(); f != nil {
 		breadcrumb = "Promote Bundle Instance to " + f.label
 	}
 	if query := m.promoteFilter.input.Value(); query != "" {
@@ -402,15 +356,15 @@ func (m Model) renderPromoteSelectView() string {
 	inner := contentStyle.Render(lipgloss.JoinVertical(lipgloss.Left, header, listContent))
 
 	escLabel := "esc: back"
-	if m.promoteFilterPos >= 0 {
+	if m.promoteEnvFilter.pos >= 0 {
 		escLabel = "esc: reset filter"
 	}
 	if m.promoteFilter.input.Value() != "" {
 		escLabel = "esc: clear filter"
 	}
 	helpParts := escLabel
-	if len(m.promoteFilters) > 0 {
-		helpParts += " • e: show target env " + m.nextPromoteFilterName()
+	if len(m.promoteEnvFilter.filters) > 0 {
+		helpParts += " • e: show target env " + m.promoteEnvFilter.nextName()
 	}
 	switch {
 	case m.promoteFilter.editing:

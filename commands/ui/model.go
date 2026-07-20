@@ -137,7 +137,7 @@ type Model struct {
 	// Bundle selection state (flat list)
 	allFlatBundles         []flatBundleEntry // Unfiltered master list, rebuilt each time Scaffold is entered
 	flatBundles            []flatBundleEntry // Filtered view of allFlatBundles for the current filter query
-	flatBundleFilter       flatFilterState   // Free-text filter state for the flat bundle list
+	flatBundleFilter       textFilter        // Free-text filter state for the flat bundle list
 	flatBundleCursor       int
 	selectedCollIdx        int // Set by selectFlatBundle, used by loadBundleDef
 	selectedBundleIdx      int // Set by selectFlatBundle, used by loadBundleDef
@@ -154,22 +154,20 @@ type Model struct {
 	objectEditStack []ObjectEditFrame // Stack for nested object input editing
 
 	// Reconfigure state
-	reconfigBundles      []*config.Bundle    // Filtered bundles for current filter, rebuilt on filter change
-	reconfigCursor       int                 // Cursor in reconfigBundles
-	reconfigBundle       *config.Bundle      // The bundle currently being reconfigured
-	reconfigFromOverview bool                // true when reconfig was entered from session panel (skip ViewReconfigSelect on ESC)
-	reconfigFilters      []envFilterState    // Precomputed valid filter states
-	reconfigFilterPos    int                 // Current position in reconfigFilters (-1 = all/no filter)
-	reconfigFilter       reconfigFilterState // Free-text filter state for the Reconfigure bundle list
+	reconfigBundles      []*config.Bundle // Filtered bundles for current filter, rebuilt on filter change
+	reconfigCursor       int              // Cursor in reconfigBundles
+	reconfigBundle       *config.Bundle   // The bundle currently being reconfigured
+	reconfigFromOverview bool             // true when reconfig was entered from session panel (skip ViewReconfigSelect on ESC)
+	reconfigEnvFilter    envFilterCycle   // Precomputed valid env filter states + cycle position
+	reconfigFilter       textFilter       // Free-text filter state for the Reconfigure bundle list
 
 	// Promote state
 	promoteBundles    []*config.Bundle      // Filtered bundles for current filter
 	promoteTargetEnvs []*config.Environment // Target env per bundle (parallel to promoteBundles)
 	promoteCursor     int                   // Cursor in promoteBundles
 	promoteBundle     *config.Bundle        // The bundle currently being promoted
-	promoteFilters    []envFilterState      // Precomputed valid filter states
-	promoteFilterPos  int                   // Current position in promoteFilters (-1 = all/no filter)
-	promoteFilter     promoteFilterState    // Free-text filter state for the Promote bundle list
+	promoteEnvFilter  envFilterCycle        // Precomputed valid env filter states + cycle position
+	promoteFilter     textFilter            // Free-text filter state for the Promote bundle list
 
 	// Transient status
 	currentErr       error  // Shown in the overview error area, cleared on next keypress

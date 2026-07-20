@@ -9,38 +9,8 @@ import (
 	"github.com/terramate-io/terramate/config"
 )
 
-func TestPromoteBundleMatchesFilter(t *testing.T) {
-	t.Parallel()
-	b := &config.Bundle{
-		DefinitionMetadata: config.Metadata{Name: "VPC-Network"},
-		Alias:              "prod-vpc-1",
-		Name:               "vpc",
-	}
-
-	testcases := []struct {
-		name  string
-		query string
-		want  bool
-	}{
-		{name: "empty query matches everything", query: "", want: true},
-		{name: "matches definition name", query: "network", want: true},
-		{name: "matches instance alias case-insensitively", query: "PROD-VPC", want: true},
-		{name: "no match", query: "ecs", want: false},
-	}
-
-	for _, tc := range testcases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			if got := promoteBundleMatchesFilter(b, tc.query); got != tc.want {
-				t.Fatalf("promoteBundleMatchesFilter(query=%q) = %v, want %v", tc.query, got, tc.want)
-			}
-		})
-	}
-}
-
 // TestBuildAllPromoteBundlesCombinesEnvAndTextFilter proves that the target-env
-// filter (the "e" key cycle, exposed via currentPromoteFilter/m.promoteFilters)
+// filter (the "e" key cycle, exposed via m.promoteEnvFilter)
 // and the free-text filter genuinely combine via AND in buildAllPromoteBundles.
 //
 // Two target envs (prod and qa) both promote from staging, and neither has any
@@ -66,9 +36,8 @@ func TestBuildAllPromoteBundlesCombinesEnvAndTextFilter(t *testing.T) {
 			Bundles:      bundles,
 			Environments: []*config.Environment{staging, prod, qa},
 		}},
-		promoteFilters:   []envFilterState{{env: prod, label: "Production", shortID: "prod"}},
-		promoteFilterPos: 0,
-		promoteFilter:    newPromoteFilterState(),
+		promoteEnvFilter: envFilterCycle{filters: []envFilterState{{env: prod, label: "Production", shortID: "prod"}}, pos: 0},
+		promoteFilter:    newTextFilter(),
 	}
 	m.promoteFilter.input.SetValue("vpc")
 

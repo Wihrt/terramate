@@ -126,13 +126,13 @@ func (m *Model) executeCommand() {
 			m.currentErr = errors.E("No bundles available.")
 			return
 		}
-		m.flatBundleFilter = newFlatFilterState()
+		m.flatBundleFilter = newTextFilter()
 		m.applyFlatBundleFilter()
 		m.viewState = ViewCreateSelect
 	case "Reconfigure":
-		m.reconfigFilterPos = -1
-		m.reconfigFilter = newReconfigFilterState()
-		m.reconfigFilters = m.buildReconfigFilters()
+		m.reconfigEnvFilter.pos = -1
+		m.reconfigFilter = newTextFilter()
+		m.reconfigEnvFilter.filters = m.buildReconfigFilters()
 		m.reconfigBundles = m.buildReconfigBundles()
 		if len(m.reconfigBundles) == 0 {
 			if len(est.Registry.Bundles) == 0 {
@@ -145,9 +145,9 @@ func (m *Model) executeCommand() {
 		m.viewState = ViewReconfigSelect
 		m.reconfigCursor = 0
 	case "Promote":
-		m.promoteFilterPos = -1
-		m.promoteFilter = newPromoteFilterState()
-		m.promoteFilters = m.buildPromoteFilters()
+		m.promoteEnvFilter.pos = -1
+		m.promoteFilter = newTextFilter()
+		m.promoteEnvFilter.filters = m.buildPromoteFilters()
 		m.promoteBundles, m.promoteTargetEnvs = m.buildAllPromoteBundles()
 		if len(m.promoteBundles) == 0 {
 			if len(est.Registry.Environments) == 0 {

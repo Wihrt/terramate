@@ -11,36 +11,6 @@ import (
 	"github.com/terramate-io/terramate/config"
 )
 
-func TestReconfigBundleMatchesFilter(t *testing.T) {
-	t.Parallel()
-	b := &config.Bundle{
-		DefinitionMetadata: config.Metadata{Name: "VPC-Network"},
-		Alias:              "prod-vpc-1",
-		Name:               "vpc",
-	}
-
-	testcases := []struct {
-		name  string
-		query string
-		want  bool
-	}{
-		{name: "empty query matches everything", query: "", want: true},
-		{name: "matches definition name", query: "network", want: true},
-		{name: "matches instance alias case-insensitively", query: "PROD-VPC", want: true},
-		{name: "no match", query: "ecs", want: false},
-	}
-
-	for _, tc := range testcases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			if got := reconfigBundleMatchesFilter(b, tc.query); got != tc.want {
-				t.Fatalf("reconfigBundleMatchesFilter(query=%q) = %v, want %v", tc.query, got, tc.want)
-			}
-		})
-	}
-}
-
 func TestBuildReconfigBundlesCombinesEnvAndTextFilter(t *testing.T) {
 	t.Parallel()
 	staging := &config.Environment{ID: "staging", Name: "Staging"}
@@ -53,9 +23,8 @@ func TestBuildReconfigBundlesCombinesEnvAndTextFilter(t *testing.T) {
 
 	m := Model{
 		EngineState:       &EngineState{Registry: &config.Registry{Bundles: bundles, Environments: []*config.Environment{staging, prod}}},
-		reconfigFilters:   []envFilterState{{env: staging, label: "Staging", shortID: "staging"}},
-		reconfigFilterPos: 0,
-		reconfigFilter:    newReconfigFilterState(),
+		reconfigEnvFilter: envFilterCycle{filters: []envFilterState{{env: staging, label: "Staging", shortID: "staging"}}, pos: 0},
+		reconfigFilter:    newTextFilter(),
 	}
 	m.reconfigFilter.input.SetValue("vpc")
 
@@ -75,8 +44,8 @@ func TestUpdateReconfigSelectFilter(t *testing.T) {
 	m := Model{
 		EngineState:       &EngineState{Registry: &config.Registry{Bundles: bundles}},
 		viewState:         ViewReconfigSelect,
-		reconfigFilterPos: -1,
-		reconfigFilter:    newReconfigFilterState(),
+		reconfigEnvFilter: envFilterCycle{pos: -1},
+		reconfigFilter:    newTextFilter(),
 	}
 	m.reconfigBundles = m.buildReconfigBundles()
 

@@ -45,8 +45,8 @@ func (m Model) updateReconfigSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.applyReconfigFilter()
 			return m, nil
 		}
-		if m.reconfigFilterPos >= 0 {
-			m.reconfigFilterPos = -1
+		if m.reconfigEnvFilter.pos >= 0 {
+			m.reconfigEnvFilter.pos = -1
 			m.applyReconfigFilter()
 			return m, nil
 		}
@@ -83,8 +83,8 @@ func (m Model) updateReconfigSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case msg.String() == "e":
-		if len(m.reconfigFilters) > 0 {
-			m.reconfigFilterPos = (m.reconfigFilterPos + 1) % len(m.reconfigFilters)
+		if len(m.reconfigEnvFilter.filters) > 0 {
+			m.reconfigEnvFilter.pos = (m.reconfigEnvFilter.pos + 1) % len(m.reconfigEnvFilter.filters)
 			m.applyReconfigFilter()
 		}
 		return m, nil
@@ -105,35 +105,6 @@ func (m Model) updateReconfigSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) applyReconfigFilter() {
 	m.reconfigBundles = m.buildReconfigBundles()
 	m.reconfigCursor = 0
-}
-
-// reconfigFilterState holds the free-text filter editing state for the
-// Reconfigure bundle list.
-type reconfigFilterState struct {
-	input   textinput.Model
-	editing bool
-}
-
-// newReconfigFilterState creates a fresh, unfocused filter input.
-func newReconfigFilterState() reconfigFilterState {
-	ti := textinput.New()
-	ti.Prompt = "/ "
-	ti.CharLimit = 128
-	return reconfigFilterState{input: ti}
-}
-
-// reconfigBundleMatchesFilter reports whether b's definition name or
-// instance alias contains query (case-insensitive). An empty query matches
-// everything.
-func reconfigBundleMatchesFilter(b *config.Bundle, query string) bool {
-	if query == "" {
-		return true
-	}
-	q := strings.ToLower(query)
-	if strings.Contains(strings.ToLower(b.DefinitionMetadata.Name), q) {
-		return true
-	}
-	return strings.Contains(strings.ToLower(displayNameFromAlias(b.Alias, b.Name)), q)
 }
 
 // loadReconfigBundle loads the bundle definition for the given bundle,
@@ -164,23 +135,6 @@ func (m *Model) loadReconfigBundle(b *config.Bundle) error {
 	m.inputsForm.PanelWidth = m.effectiveWidth()
 	m.inputsForm.PanelHeight = m.effectiveInputsPanelHeight()
 	return nil
-}
-
-// currentReconfigFilter returns the current filter state, or nil if showing all.
-func (m Model) currentReconfigFilter() *envFilterState {
-	if m.reconfigFilterPos >= 0 && m.reconfigFilterPos < len(m.reconfigFilters) {
-		return &m.reconfigFilters[m.reconfigFilterPos]
-	}
-	return nil
-}
-
-// nextReconfigFilterName returns the short ID of the next filter in the cycle.
-func (m Model) nextReconfigFilterName() string {
-	if len(m.reconfigFilters) == 0 {
-		return ""
-	}
-	nextPos := (m.reconfigFilterPos + 1) % len(m.reconfigFilters)
-	return m.reconfigFilters[nextPos].shortID
 }
 
 // buildReconfigFilters precomputes the list of valid filter states
@@ -251,8 +205,8 @@ func makeBundleDefinitionEntry(root *config.Root, b *config.Bundle) *config.Bund
 // ChangeReconfig entry, sorted into grouped display order so that
 // the flat cursor index matches the visual position.
 func (m Model) buildReconfigBundles() []*config.Bundle {
-	f := m.currentReconfigFilter()
-	query := strings.TrimSpace(m.reconfigFilter.input.Value())
+	f := m.reconfigEnvFilter.current()
+	query := m.reconfigFilter.query()
 	var filtered []*config.Bundle
 	for _, b := range m.EngineState.Registry.Bundles {
 		if f != nil {
@@ -264,7 +218,7 @@ func (m Model) buildReconfigBundles() []*config.Bundle {
 				continue
 			}
 		}
-		if !reconfigBundleMatchesFilter(b, query) {
+		if !bundleMatchesFilter(b, query) {
 			continue
 		}
 		filtered = append(filtered, b)
@@ -351,7 +305,7 @@ func (m Model) renderReconfigSelectView() string {
 	contentStyle := lipgloss.NewStyle().Width(innerWidth)
 
 	breadcrumb := "Reconfigure Bundle Instance"
-	if f := m.currentReconfigFilter(); f != nil {
+	if f := m.reconfigEnvFilter.current(); f != nil {
 		if f.envLess {
 			breadcrumb = "Reconfigure Bundle Instance Without Environment"
 		} else {
@@ -391,15 +345,15 @@ func (m Model) renderReconfigSelectView() string {
 	inner := contentStyle.Render(lipgloss.JoinVertical(lipgloss.Left, header, listContent))
 
 	escLabel := "esc: back"
-	if m.reconfigFilterPos >= 0 {
+	if m.reconfigEnvFilter.pos >= 0 {
 		escLabel = "esc: reset filter"
 	}
 	if m.reconfigFilter.input.Value() != "" {
 		escLabel = "esc: clear filter"
 	}
 	helpParts := escLabel
-	if len(m.reconfigFilters) > 0 {
-		helpParts += " • e: show only " + m.nextReconfigFilterName()
+	if len(m.reconfigEnvFilter.filters) > 0 {
+		helpParts += " • e: show only " + m.reconfigEnvFilter.nextName()
 	}
 	switch {
 	case m.reconfigFilter.editing:

@@ -67,7 +67,7 @@ func TestUpdateCreateSelectFilter(t *testing.T) {
 		{bundle: &manifest.Bundle{Name: "vpc", Version: "1.0.0"}, collName: "local"},
 		{bundle: &manifest.Bundle{Name: "ecs", Version: "1.0.0"}, collName: "local"},
 	}
-	m := Model{viewState: ViewCreateSelect, allFlatBundles: entries, flatBundleFilter: newFlatFilterState()}
+	m := Model{viewState: ViewCreateSelect, allFlatBundles: entries, flatBundleFilter: newTextFilter()}
 	m.applyFlatBundleFilter()
 
 	// "/" enters filter-edit mode.

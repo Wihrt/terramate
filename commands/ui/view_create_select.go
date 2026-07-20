@@ -53,21 +53,6 @@ func buildFlatBundles(est *EngineState) []flatBundleEntry {
 	return entries
 }
 
-// flatFilterState holds the free-text filter editing state for the flat
-// (Scaffold/Create) bundle list.
-type flatFilterState struct {
-	input   textinput.Model
-	editing bool
-}
-
-// newFlatFilterState creates a fresh, unfocused filter input.
-func newFlatFilterState() flatFilterState {
-	ti := textinput.New()
-	ti.Prompt = "/ "
-	ti.CharLimit = 128
-	return flatFilterState{input: ti}
-}
-
 // flatBundleMatchesFilter reports whether entry's bundle name contains query
 // (case-insensitive). An empty query matches everything.
 func flatBundleMatchesFilter(entry flatBundleEntry, query string) bool {
@@ -80,7 +65,7 @@ func flatBundleMatchesFilter(entry flatBundleEntry, query string) bool {
 // applyFlatBundleFilter recomputes m.flatBundles from m.allFlatBundles using
 // the current filter query, and resets the cursor.
 func (m *Model) applyFlatBundleFilter() {
-	query := strings.TrimSpace(m.flatBundleFilter.input.Value())
+	query := m.flatBundleFilter.query()
 	m.flatBundles = nil
 	for _, entry := range m.allFlatBundles {
 		if flatBundleMatchesFilter(entry, query) {
