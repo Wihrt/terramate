@@ -140,7 +140,13 @@ func TestChangeSaveRejectsNonYAMLExistingFileForEnvMerge(t *testing.T) {
 // (NewCreateChange/generateBundleYAML mint a fresh uuid.NewString() each time).
 var uuidRE = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
 
-func normalizeUUID(s string) string {
+// normalizeUUID replaces every canonical UUID with <UUID>. It fails the test
+// when no UUID is present, so normalization can never mask a missing UUID.
+func normalizeUUID(t *testing.T, s string) string {
+	t.Helper()
+	if !uuidRE.MatchString(s) {
+		t.Fatalf("expected at least one canonical UUID in content, found none:\n%s", s)
+	}
 	return uuidRE.ReplaceAllString(s, "<UUID>")
 }
 
@@ -262,7 +268,7 @@ func TestChangeCreateReconfigRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertGolden(t, "change-roundtrip-created", normalizeUUID(string(createdContent)))
+	assertGolden(t, "change-roundtrip-created", normalizeUUID(t, string(createdContent)))
 
 	// 3. Reload the registry from disk, mirroring reloadAll (view_overview.go:167)
 	//    and its est.CLI.Reload() call. config.LoadRoot alone is NOT enough here:
@@ -329,7 +335,7 @@ func TestChangeCreateReconfigRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	assertGolden(t, "change-roundtrip-reconfigured", normalizeUUID(string(reconfiguredContent)))
+	assertGolden(t, "change-roundtrip-reconfigured", normalizeUUID(t, string(reconfiguredContent)))
 
 	// 4. Promote leg intentionally omitted — see the doc comment above and
 	//    task-4-report.md for the documented gap.
