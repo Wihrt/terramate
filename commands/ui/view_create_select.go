@@ -77,7 +77,8 @@ func (m *Model) applyFlatBundleFilter() {
 
 // createSelectListViewCfg configures the shared list engine for the flat
 // Create-Select view: no env cycling, blank-line separated items, and an
-// inline error that clears on cursor movement (see selectFlatBundle).
+// inline error, set by selectFlatBundle and cleared on cursor movement
+// (see onCursorMove below).
 var createSelectListViewCfg = listViewConfig{
 	breadcrumb: func(_ *Model) string { return "Scaffold Bundle Instance" },
 	helpLine:   func(m *Model) string { return m.flatBundleFilterHelp() },
