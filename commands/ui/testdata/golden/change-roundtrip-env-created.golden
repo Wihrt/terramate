@@ -1,0 +1,12 @@
+apiVersion: terramate.io/cli/v1
+kind: BundleInstance
+metadata:
+  name: vpc
+  uuid: <UUID>
+spec: {}
+environments:
+  staging:
+    source: /bundles/vpc
+    inputs:
+      # tmdoc:
+      region: fr-par

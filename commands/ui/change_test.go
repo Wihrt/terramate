@@ -169,7 +169,7 @@ func newRootEvalctx(root *config.Root) *eval.Context {
 // requires a *config.Environment with a PromoteFrom lineage plus an
 // `environments {}` block on the bundle definition, which is a materially
 // bigger fixture (environments + promotion registry wiring) than the
-// create/reconfigure path below. That gap is documented for Phase 3b.
+// create/reconfigure path below. That leg is covered by TestChangePromoteRoundTrip below.
 func TestChangeCreateReconfigRoundTrip(t *testing.T) {
 	t.Parallel()
 
@@ -337,6 +337,213 @@ func TestChangeCreateReconfigRoundTrip(t *testing.T) {
 	}
 	assertGolden(t, "change-roundtrip-reconfigured", normalizeUUID(t, string(reconfiguredContent)))
 
-	// 4. Promote leg intentionally omitted — see the doc comment above and
-	//    task-4-report.md for the documented gap.
+	// 4. Promote leg covered by TestChangePromoteRoundTrip.
+}
+
+// TestChangePromoteRoundTrip characterizes the promote leg end-to-end,
+// closing the gap documented by TestChangeCreateReconfigRoundTrip: an
+// env-scoped create into "staging", reload from disk, then
+// NewPromoteChange into "prod" merging a second environment block into
+// the existing file (mergeBundleYAMLEnv append + registry-order sort).
+//
+// Wiring mirrors loadPromoteBundle (view_promote.go:87-112) and
+// updatePromoteInput (view_promote.go:382-405).
+func TestChangePromoteRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	// Same skeleton as TestChangeCreateReconfigRoundTrip, plus:
+	// two top-level environment blocks (prod promotes from staging) and
+	// environments { required = true } on the definition so the create
+	// leg binds to an environment (change.go:149-152).
+	s := sandbox.NoGit(t, true)
+	s.BuildTree([]string{
+		"f:/envs.tm:" + `environment {
+  id   = "staging"
+  name = "Staging"
+}
+environment {
+  id           = "prod"
+  name         = "Production"
+  promote_from = "staging"
+}`,
+		"f:/bundles/vpc/define.tm:" + `define "bundle" {
+  metadata {
+    class   = "network"
+    name    = "vpc"
+    version = "1.0.0"
+  }
+  scaffolding {
+    path = "stacks/vpc.tm"
+    name = "vpc"
+  }
+  environments {
+    required = true
+  }
+  input "region" {
+    type = string
+    prompt {
+      text = "Region?"
+    }
+  }
+}`,
+	})
+
+	root, err := config.LoadRoot(s.RootDir(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// di-bound resolve.API — same rationale as TestChangeCreateReconfigRoundTrip.
+	bindings := di.NewBindings(context.Background())
+	if err := di.Bind(bindings, resolve.NewAPI(t.TempDir())); err != nil {
+		t.Fatal(err)
+	}
+	ctx := di.WithBindings(context.Background(), bindings)
+	resolveAPI, err := di.Get[resolve.API](ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	evalctx := newRootEvalctx(root)
+
+	// Registry with 0 bundles but both environments (engine/bundles.go:28).
+	reg, err := engine.EvalProjectBundles(root, resolveAPI, evalctx, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reg.Environments) != 2 {
+		t.Fatalf("expected 2 environments in the registry, got %d", len(reg.Environments))
+	}
+	staging := reg.Environments[0]
+	prod := reg.Environments[1]
+	if staging.ID != "staging" || prod.ID != "prod" {
+		t.Fatalf("unexpected registry env order: %q, %q", staging.ID, prod.ID)
+	}
+
+	localDefs, err := config.ListLocalBundleDefinitions(root, evalctx, project.NewPath("/"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(localDefs) != 1 {
+		t.Fatalf("expected exactly 1 local bundle definition, got %d", len(localDefs))
+	}
+	bde := &localDefs[0]
+
+	est := &EngineState{
+		Context:    ctx,
+		WorkingDir: root.HostDir(),
+		Root:       root,
+		Evalctx:    evalctx,
+		ResolveAPI: resolveAPI,
+		Registry:   reg,
+	}
+
+	// Create leg, env-scoped into staging (view_create_select.go:190-233 wiring).
+	bundleEvalctx := newBundleEvalContext(est.Evalctx, est.Registry, staging)
+	schemas, err := config.EvalBundleSchemaNamespaces(est.Root, est.ResolveAPI, bundleEvalctx, bde.Define, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schemactx := typeschema.EvalContext{Evalctx: bundleEvalctx, Schemas: schemas}
+
+	inputDefs, err := config.EvalBundleInputDefinitions(schemactx, bde.Define)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	createValues := map[string]cty.Value{"region": cty.StringVal("fr-par")}
+	createChange, err := NewCreateChange(est, staging, bde, schemactx, inputDefs, createValues)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if createChange.Env == nil || createChange.Env.ID != "staging" {
+		t.Fatalf("expected the create change to bind to staging, got %+v", createChange.Env)
+	}
+	if err := createChange.Save(reg.Environments); err != nil {
+		t.Fatal(err)
+	}
+	createdContent, err := os.ReadFile(createChange.HostPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertGolden(t, "change-roundtrip-env-created", normalizeUUID(t, string(createdContent)))
+
+	// Reload from disk through engine.Load — same rationale as the
+	// create/reconfigure round trip (config.LoadRoot never re-parses .tm.yml).
+	eng, found, err := engine.Load(ctx, root.HostDir(), false, cliconfig.Config{}, 0, printer.Printers{}, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found {
+		t.Fatal("engine.Load: project not found on reload")
+	}
+	root2 := eng.Config()
+	evalctx2 := newRootEvalctx(root2)
+
+	reg2, err := engine.EvalProjectBundles(root2, resolveAPI, evalctx2, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reg2.Bundles) != 1 {
+		t.Fatalf("expected exactly 1 bundle in the reloaded registry, got %d", len(reg2.Bundles))
+	}
+	bundle := reg2.Bundles[0]
+	if bundle.Environment == nil || bundle.Environment.ID != "staging" {
+		t.Fatalf("expected the reloaded bundle bound to staging, got %+v", bundle.Environment)
+	}
+	prod2 := reg2.Environments[1]
+	if prod2.ID != "prod" {
+		t.Fatalf("unexpected reloaded env order, got %q", prod2.ID)
+	}
+
+	est2 := &EngineState{
+		Context:    ctx,
+		WorkingDir: root2.HostDir(),
+		Root:       root2,
+		Evalctx:    evalctx2,
+		ResolveAPI: resolveAPI,
+		Registry:   reg2,
+	}
+	m2 := Model{EngineState: est2}
+
+	// Promote leg — mirrors loadPromoteBundle (view_promote.go:87-112):
+	// the eval context is built against the TARGET env.
+	bde2 := makeBundleDefinitionEntry(est2.Root, bundle)
+	if bde2 == nil {
+		t.Fatal("makeBundleDefinitionEntry returned nil for the reloaded bundle")
+	}
+	schemactx2, err := m2.loadBundleEvalContext(bde2, prod2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inputDefs2, err := config.EvalBundleInputDefinitions(schemactx2, bde2.Define)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	promoteValues := inputsToValueMap(bundle.Inputs)
+	normalizeBundleRefValues(inputDefs2, promoteValues)
+	promoteValues["region"] = cty.StringVal("us-east")
+
+	promoteChange, err := NewPromoteChange(est2, prod2, bundle, bde2, schemactx2, inputDefs2, promoteValues)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if promoteChange.Kind != ChangePromote {
+		t.Fatalf("expected ChangePromote, got %v", promoteChange.Kind)
+	}
+	if promoteChange.FromEnv == nil || promoteChange.FromEnv.ID != "staging" {
+		t.Fatalf("expected FromEnv staging, got %+v", promoteChange.FromEnv)
+	}
+	if err := promoteChange.Save(reg2.Environments); err != nil {
+		t.Fatal(err)
+	}
+	promotedContent, err := os.ReadFile(promoteChange.HostPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Freezes: both env blocks present, sorted in registry order
+	// (staging before prod, mergeBundleYAMLEnv change.go:596-605), env
+	// inputs deduped only against the (empty) top-level spec inputs.
+	assertGolden(t, "change-roundtrip-promoted", normalizeUUID(t, string(promotedContent)))
 }
