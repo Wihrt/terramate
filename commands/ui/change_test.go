@@ -547,3 +547,147 @@ environment {
 	// inputs deduped only against the (empty) top-level spec inputs.
 	assertGolden(t, "change-roundtrip-promoted", normalizeUUID(t, string(promotedContent)))
 }
+
+// describedInputDefs returns two string input definitions with NON-EMPTY
+// descriptions. Non-empty descriptions are required for the dedup in
+// mergeBundleYAMLEnv to fire: formatTmdoc (change.go:612-622) produces
+// "# tmdoc: " WITH a trailing space for an empty description, and that
+// trailing space is stripped only from the final serialized output by
+// trailingWSRE (change.go:529, 610) — never from the in-memory comment
+// fields that mergeBundleYAMLEnv compares (change.go:574-582). So a
+// freshly generated comment ("# tmdoc: ") never string-equals the
+// disk-round-tripped one ("# tmdoc:") when the description is empty, and
+// the dedup silently never fires. With a non-empty description the tmdoc
+// comment has no trailing whitespace and is byte-identical either way.
+func describedInputDefs() []*config.InputDefinition {
+	return []*config.InputDefinition{
+		{
+			Name:        "region",
+			Description: "Region",
+			Type:        &typeschema.PrimitiveType{Name: "string"},
+			Prompt:      config.PromptConfig{Text: "Region?"},
+		},
+		{
+			Name:        "name",
+			Description: "Name",
+			Type:        &typeschema.PrimitiveType{Name: "string"},
+			Prompt:      config.PromptConfig{Text: "Name?"},
+		},
+	}
+}
+
+// TestChangeSaveDedupsEnvInputAgainstSpec characterizes the ACTIVE branch
+// of mergeBundleYAMLEnv's dedup (change.go:571-587): an env input is
+// dropped when an identical entry (same key, same comments, deep-equal
+// value) already exists in the TOP-LEVEL spec inputs. The first save is
+// top-level (spec inputs populated); the second save is env-scoped with
+// one identical input ("region") and one new input ("name" changed), so
+// only the changed one survives into the env block.
+//
+// The inputs use NON-EMPTY descriptions (see describedInputDefs): with
+// empty descriptions the dedup never fires due to the trailing-space
+// asymmetry between formatTmdoc and trailingWSRE — that quirk is frozen
+// separately in TestChangeSaveEmptyDescriptionInputNotDeduped.
+func TestChangeSaveDedupsEnvInputAgainstSpec(t *testing.T) {
+	t.Parallel()
+	staging := &config.Environment{ID: "staging", Name: "Staging"}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vpc-main.tm.yml")
+
+	// 1. Top-level save: spec.inputs = {region: fr-par, name: main}.
+	c1 := testChange(path)
+	c1.InputDefs = describedInputDefs()
+	if err := c1.Save(nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Env-scoped save on the same file: region identical to spec
+	// (deduped away), name differs (kept in the env block).
+	c2 := testChange(path)
+	c2.InputDefs = describedInputDefs()
+	c2.Env = staging
+	c2.UserValues["name"] = cty.StringVal("staging-main")
+	if err := c2.Save([]*config.Environment{staging}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertGolden(t, "change-save-dedup-spec", string(got))
+}
+
+// TestChangeSaveEmptyDescriptionInputNotDeduped freezes a quirk of the
+// dedup in mergeBundleYAMLEnv (change.go:571-587): when an input's
+// Description is EMPTY, an env input identical to its top-level spec
+// counterpart is NOT deduped — it is duplicated into the env block.
+//
+// Root cause: formatTmdoc (change.go:612-622) renders an empty
+// description as "# tmdoc: " WITH a trailing space. trailingWSRE
+// (change.go:529, 610) strips trailing whitespace only from the final
+// serialized YAML output, not from the in-memory comment fields compared
+// by mergeBundleYAMLEnv (change.go:574-582). So on the second save the
+// freshly generated env input carries HeadComment "# tmdoc: " while the
+// spec input round-tripped from disk carries "# tmdoc:", the string
+// comparison fails, and the dedup never fires. This behavior must
+// survive the upcoming extraction of this logic out of commands/ui,
+// which is why it is frozen here.
+func TestChangeSaveEmptyDescriptionInputNotDeduped(t *testing.T) {
+	t.Parallel()
+	staging := &config.Environment{ID: "staging", Name: "Staging"}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vpc-main.tm.yml")
+
+	// 1. Top-level save with empty-description inputs (testChange uses
+	// strInput, which never sets Description).
+	c1 := testChange(path)
+	if err := c1.Save(nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Env-scoped save: region is identical to spec but is NOT deduped
+	// (trailing-space comment mismatch); it appears in both the spec and
+	// the staging env block.
+	c2 := testChange(path)
+	c2.Env = staging
+	c2.UserValues["name"] = cty.StringVal("staging-main")
+	if err := c2.Save([]*config.Environment{staging}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertGolden(t, "change-save-dedup-emptydesc-quirk", string(got))
+}
+
+// TestChangeSaveWritesBundleRefAsAlias characterizes the outbound
+// bundle-ref conversion (change.go:468-474): inputs typed BundleType hold
+// resolved objects internally but are written to YAML as their alias
+// string.
+func TestChangeSaveWritesBundleRefAsAlias(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "app.tm.yml")
+
+	c := testChange(path)
+	c.InputDefs = append(c.InputDefs, &config.InputDefinition{
+		Name:        "network",
+		Description: "Upstream network bundle",
+		Type:        &typeschema.BundleType{ClassID: "network"},
+		Prompt:      config.PromptConfig{Text: "Network?"},
+	})
+	c.UserValues["network"] = cty.ObjectVal(map[string]cty.Value{
+		"alias": cty.StringVal("vpc-main"),
+		"uuid":  cty.StringVal("00000000-0000-0000-0000-000000000002"),
+	})
+
+	if err := c.Save(nil); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertGolden(t, "change-save-bundleref-alias", string(got))
+}
