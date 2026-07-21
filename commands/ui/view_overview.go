@@ -12,6 +12,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/terramate-io/terramate/commands/ui/change"
 	"github.com/terramate-io/terramate/config"
 	"github.com/terramate-io/terramate/engine"
 	"github.com/terramate-io/terramate/errors"
@@ -193,10 +194,10 @@ func sessionBundleKey(hostPath string, env *config.Environment) string {
 }
 
 // recordSessionChange tracks a saved change for the session history panel and CLI exit log.
-func (m *Model) recordSessionChange(c Change) {
+func (m *Model) recordSessionChange(c change.Change) {
 	m.changeLog = append(m.changeLog, changeLogEntry(c))
 	if m.sessionChanges == nil {
-		m.sessionChanges = make(map[string][]ChangeKind)
+		m.sessionChanges = make(map[string][]change.Kind)
 	}
 	key := sessionBundleKey(c.HostPath, c.Env)
 	m.sessionChanges[key] = append(m.sessionChanges[key], c.Kind)
@@ -223,21 +224,21 @@ func (m Model) sessionBundles() []*config.Bundle {
 	return sorted
 }
 
-func changeLogEntry(c Change) string {
+func changeLogEntry(c change.Change) string {
 	var action string
 
 	switch c.Kind {
-	case ChangeCreate:
+	case change.KindCreate:
 		action = "Created " + c.DisplayName
 		if c.Env != nil {
 			action += fmt.Sprintf(" [%s]", c.Env.ID)
 		}
-	case ChangeReconfig:
+	case change.KindReconfig:
 		action = "Reconfigured " + c.DisplayName
 		if c.Env != nil {
 			action += fmt.Sprintf(" [%s]", c.Env.ID)
 		}
-	case ChangePromote:
+	case change.KindPromote:
 		action = fmt.Sprintf("Promoted %s from [%s] to [%s]", c.DisplayName, c.FromEnv.ID, c.Env.ID)
 	default:
 		panic("unsupported change kind " + c.Kind)
@@ -519,13 +520,13 @@ func (m Model) renderSessionBundleItems(groups []bundleGroup, cursor, contentWid
 
 	lineStyle := lipgloss.NewStyle().Width(contentWidth)
 
-	kindLabels := map[ChangeKind]struct {
+	kindLabels := map[change.Kind]struct {
 		label string
 		color lipgloss.AdaptiveColor
 	}{
-		ChangeCreate:   {label: "created", color: colorCreate},
-		ChangeReconfig: {label: "reconfigured", color: colorReconfig},
-		ChangePromote:  {label: "promoted", color: colorPromote},
+		change.KindCreate:   {label: "created", color: colorCreate},
+		change.KindReconfig: {label: "reconfigured", color: colorReconfig},
+		change.KindPromote:  {label: "promoted", color: colorPromote},
 	}
 
 	var items []renderedItem
@@ -549,7 +550,7 @@ func (m Model) renderSessionBundleItems(groups []bundleGroup, cursor, contentWid
 			}
 			visualIdx++
 
-			displayName := displayNameFromAlias(b.Alias, b.Name)
+			displayName := change.DisplayNameFromAlias(b.Alias, b.Name)
 			key := sessionBundleKey(b.Info.HostPath(), b.Environment)
 			isLastSaved := m.lastSavedKey != "" && key == m.lastSavedKey
 
@@ -570,7 +571,7 @@ func (m Model) renderSessionBundleItems(groups []bundleGroup, cursor, contentWid
 
 			// Append change kind tags
 			if kinds, ok := m.sessionChanges[key]; ok {
-				seen := make(map[ChangeKind]bool)
+				seen := make(map[change.Kind]bool)
 				for _, k := range kinds {
 					if seen[k] {
 						continue

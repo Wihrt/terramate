@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 
+	"github.com/terramate-io/terramate/commands/ui/change"
 	"github.com/terramate-io/terramate/config"
 )
 
@@ -64,5 +65,5 @@ func bundleMatchesFilter(b *config.Bundle, query string) bool {
 	if strings.Contains(strings.ToLower(b.DefinitionMetadata.Name), q) {
 		return true
 	}
-	return strings.Contains(strings.ToLower(displayNameFromAlias(b.Alias, b.Name)), q)
+	return strings.Contains(strings.ToLower(change.DisplayNameFromAlias(b.Alias, b.Name)), q)
 }

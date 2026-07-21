@@ -11,6 +11,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/zclconf/go-cty/cty"
 
+	"github.com/terramate-io/terramate/commands/ui/change"
 	"github.com/terramate-io/terramate/config"
 	"github.com/terramate-io/terramate/errors"
 	"github.com/terramate-io/terramate/project"
@@ -99,8 +100,8 @@ func (m *Model) loadPromoteBundle(b *config.Bundle, targetEnv *config.Environmen
 		return errors.E(err, "failed to evaluate input definitions")
 	}
 
-	values := inputsToValueMap(b.Inputs)
-	normalizeBundleRefValues(inputDefs, values)
+	values := change.InputsToValueMap(b.Inputs)
+	change.NormalizeBundleRefValues(inputDefs, values)
 
 	m.promoteBundle = b
 	m.selectedBundleDefEntry = bde
@@ -291,7 +292,7 @@ func (m Model) promoteListHeader(innerWidth int) string {
 		if b.DefinitionMetadata.Class != "" {
 			fields = append(fields, detailField{label: "Class", value: b.DefinitionMetadata.Class, truncEnd: true})
 		}
-		fields = append(fields, detailField{label: "Alias", value: displayNameFromAlias(b.Alias, b.Name), truncEnd: true})
+		fields = append(fields, detailField{label: "Alias", value: change.DisplayNameFromAlias(b.Alias, b.Name), truncEnd: true})
 		if m.promoteCursor < len(m.promoteTargetEnvs) {
 			sourceEnvName := envNameForID(est.Registry.Environments, b.Environment.ID)
 			targetEnvName := m.promoteTargetEnvs[m.promoteCursor].Name
@@ -322,7 +323,7 @@ func (m Model) renderPromoteInputView() string {
 
 	b := m.promoteBundle
 	aliasStyle := lipgloss.NewStyle().Foreground(colorCreate)
-	alias := aliasStyle.Render(displayNameFromAlias(b.Alias, b.Name))
+	alias := aliasStyle.Render(change.DisplayNameFromAlias(b.Alias, b.Name))
 	var envTag string
 	if m.promoteCursor < len(m.promoteTargetEnvs) {
 		targetEnv := m.promoteTargetEnvs[m.promoteCursor]
@@ -381,8 +382,7 @@ func (m Model) updatePromoteInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch m.inputsForm.State() {
 	case InputsFormAccepted:
-		change, err := NewPromoteChange(
-			est, targetEnv, m.promoteBundle, m.selectedBundleDefEntry,
+		ch, err := change.NewPromote(est.changeSession(), targetEnv, m.promoteBundle, m.selectedBundleDefEntry,
 			m.inputsForm.Schemactx, m.inputsForm.InputDefs, m.inputsForm.UserValues(),
 		)
 		if err != nil {
@@ -390,7 +390,7 @@ func (m Model) updatePromoteInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.inputsForm.state = InputsFormActive
 			break
 		}
-		if err := change.Save(est.Registry.Environments); err != nil {
+		if err := ch.Save(est.Registry.Environments); err != nil {
 			m.inputsForm.SetValidationError(err)
 			m.inputsForm.state = InputsFormActive
 			break
@@ -400,7 +400,7 @@ func (m Model) updatePromoteInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.inputsForm.state = InputsFormActive
 			break
 		}
-		m.recordSessionChange(change)
+		m.recordSessionChange(ch)
 
 		m.viewState = ViewOverview
 	case InputsFormDiscarded:

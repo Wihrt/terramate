@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/terramate-io/terramate/commands/ui/change"
 	"github.com/terramate-io/terramate/config"
 	"github.com/terramate-io/terramate/errors"
 	"github.com/terramate-io/terramate/generate/resolve"
@@ -120,7 +121,7 @@ func (m Model) selectFlatBundle() (tea.Model, tea.Cmd) {
 
 	// If the bundle requires an environment and environments are configured,
 	// show the env picker before proceeding to inputs.
-	if bundleRequiresEnv(m.EngineState.Evalctx, m.selectedBundleDefEntry.Define) &&
+	if change.BundleRequiresEnv(m.EngineState.Evalctx, m.selectedBundleDefEntry.Define) &&
 		len(m.EngineState.Registry.Environments) > 0 {
 		m.createEnvCursor = 0
 		m.viewState = ViewCreateEnvSelect
@@ -181,7 +182,7 @@ func (m *Model) loadBundleDef(collIdx, bundleIdx int) error {
 	// defer checkBundleEnabled and schema evaluation to finalizeBundleWithEnv
 	// which runs after the user picks an environment.
 	// Skip deferral for nested creates — they inherit the parent's env.
-	if bundleRequiresEnv(est.Evalctx, bde.Define) && m.selectedEnv == nil && len(est.Registry.Environments) > 0 && len(m.createStack) == 0 {
+	if change.BundleRequiresEnv(est.Evalctx, bde.Define) && m.selectedEnv == nil && len(est.Registry.Environments) > 0 && len(m.createStack) == 0 {
 		m.selectedCollIdx = collIdx
 		m.selectedBundleIdx = bundleIdx
 		m.selectedBundleDefEntry = bde
@@ -212,7 +213,7 @@ func (m *Model) loadBundleDef(collIdx, bundleIdx int) error {
 
 	if bde.Define.Scaffolding.Name == nil {
 		inputDefs = append(inputDefs, pseudoStringInput(
-			pseudoKeyOutputName, "Instance name",
+			change.PseudoKeyOutputName, "Instance name",
 			"Name of the created bundle instance.",
 		))
 	}
@@ -262,7 +263,7 @@ func (m *Model) finalizeBundleWithEnv() error {
 
 	if bde.Define.Scaffolding.Name == nil {
 		inputDefs = append(inputDefs, pseudoStringInput(
-			pseudoKeyOutputName, "Instance name",
+			change.PseudoKeyOutputName, "Instance name",
 			"Name of the created bundle instance.",
 		))
 	}
@@ -287,19 +288,8 @@ func bundleSourceFromManifest(coll *manifest.Collection, bundle *manifest.Bundle
 	return fmt.Sprintf("%s//%s", addr, bundle.Path)
 }
 
-func bundleRequiresEnv(evalctx *eval.Context, def *hcl.DefineBundle) bool {
-	if def.Environments.Required == nil {
-		return false
-	}
-	envRequired, err := config.EvalBool(evalctx, def.Environments.Required.Expr, "environments.required")
-	if err != nil {
-		return false
-	}
-	return envRequired
-}
-
 func checkEnvRequired(evalctx *eval.Context, def *hcl.DefineBundle, envs []*config.Environment) error {
-	if bundleRequiresEnv(evalctx, def) && len(envs) == 0 {
+	if change.BundleRequiresEnv(evalctx, def) && len(envs) == 0 {
 		return errors.E("This bundle requires environments, but none are configured.")
 	}
 	return nil

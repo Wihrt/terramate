@@ -13,6 +13,7 @@ import (
 
 	"github.com/zclconf/go-cty/cty"
 
+	"github.com/terramate-io/terramate/commands/ui/change"
 	"github.com/terramate-io/terramate/config"
 	"github.com/terramate-io/terramate/di"
 	"github.com/terramate-io/terramate/engine"
@@ -26,9 +27,9 @@ import (
 	"github.com/terramate-io/terramate/ui/tui/cliconfig"
 )
 
-func testChange(hostPath string) *Change {
-	return &Change{
-		Kind:     ChangeCreate,
+func testChange(hostPath string) *change.Change {
+	return &change.Change{
+		Kind:     change.KindCreate,
 		HostPath: hostPath,
 		Name:     "my-bundle",
 		UUID:     "00000000-0000-0000-0000-000000000001",
@@ -137,7 +138,7 @@ func TestChangeSaveRejectsNonYAMLExistingFileForEnvMerge(t *testing.T) {
 }
 
 // uuidRE matches a canonical UUID so goldens stay stable across runs
-// (NewCreateChange/generateBundleYAML mint a fresh uuid.NewString() each time).
+// (change.NewCreate/generateBundleYAML mint a fresh uuid.NewString() each time).
 var uuidRE = regexp.MustCompile(`[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}`)
 
 // normalizeUUID replaces every canonical UUID with <UUID>. It fails the test
@@ -162,10 +163,10 @@ func newRootEvalctx(root *config.Root) *eval.Context {
 // TestChangeCreateReconfigRoundTrip characterizes the create -> reconfigure
 // change path end-to-end on a real bundle definition: a sandbox with a
 // minimal `define "bundle"` (one prompted string input + static
-// scaffolding), through NewCreateChange -> Save -> reload from disk ->
-// NewReconfigChange -> Save.
+// scaffolding), through change.NewCreate -> Save -> reload from disk ->
+// change.NewReconfig -> Save.
 //
-// The promote leg is NOT covered here (see task-4-report.md): NewPromoteChange
+// The promote leg is NOT covered here (see task-4-report.md): change.NewPromote
 // requires a *config.Environment with a PromoteFrom lineage plus an
 // `environments {}` block on the bundle definition, which is a materially
 // bigger fixture (environments + promotion registry wiring) than the
@@ -256,7 +257,7 @@ func TestChangeCreateReconfigRoundTrip(t *testing.T) {
 	// 2. Create with region=fr-par, save, reload the written file, and
 	//    assert against a UUID-normalized golden.
 	createValues := map[string]cty.Value{"region": cty.StringVal("fr-par")}
-	createChange, err := NewCreateChange(est, nil, bde, schemactx, inputDefs, createValues)
+	createChange, err := change.NewCreate(est.changeSession(), nil, bde, schemactx, inputDefs, createValues)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,10 +321,10 @@ func TestChangeCreateReconfigRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reconfigValues := inputsToValueMap(bundle.Inputs)
+	reconfigValues := change.InputsToValueMap(bundle.Inputs)
 	reconfigValues["region"] = cty.StringVal("us-east")
 
-	reconfigChange, err := NewReconfigChange(est2, bundle, bde2, schemactx2, inputDefs2, reconfigValues)
+	reconfigChange, err := change.NewReconfig(est2.changeSession(), bundle, bde2, schemactx2, inputDefs2, reconfigValues)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -343,7 +344,7 @@ func TestChangeCreateReconfigRoundTrip(t *testing.T) {
 // TestChangePromoteRoundTrip characterizes the promote leg end-to-end,
 // closing the gap documented by TestChangeCreateReconfigRoundTrip: an
 // env-scoped create into "staging", reload from disk, then
-// NewPromoteChange into "prod" merging a second environment block into
+// change.NewPromote into "prod" merging a second environment block into
 // the existing file (mergeBundleYAMLEnv append + registry-order sort).
 //
 // Wiring mirrors loadPromoteBundle (view_promote.go:87-112) and
@@ -452,7 +453,7 @@ environment {
 	}
 
 	createValues := map[string]cty.Value{"region": cty.StringVal("fr-par")}
-	createChange, err := NewCreateChange(est, staging, bde, schemactx, inputDefs, createValues)
+	createChange, err := change.NewCreate(est.changeSession(), staging, bde, schemactx, inputDefs, createValues)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -521,16 +522,16 @@ environment {
 		t.Fatal(err)
 	}
 
-	promoteValues := inputsToValueMap(bundle.Inputs)
-	normalizeBundleRefValues(inputDefs2, promoteValues)
+	promoteValues := change.InputsToValueMap(bundle.Inputs)
+	change.NormalizeBundleRefValues(inputDefs2, promoteValues)
 	promoteValues["region"] = cty.StringVal("us-east")
 
-	promoteChange, err := NewPromoteChange(est2, prod2, bundle, bde2, schemactx2, inputDefs2, promoteValues)
+	promoteChange, err := change.NewPromote(est2.changeSession(), prod2, bundle, bde2, schemactx2, inputDefs2, promoteValues)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if promoteChange.Kind != ChangePromote {
-		t.Fatalf("expected ChangePromote, got %v", promoteChange.Kind)
+	if promoteChange.Kind != change.KindPromote {
+		t.Fatalf("expected change.KindPromote, got %v", promoteChange.Kind)
 	}
 	if promoteChange.FromEnv == nil || promoteChange.FromEnv.ID != "staging" {
 		t.Fatalf("expected FromEnv staging, got %+v", promoteChange.FromEnv)

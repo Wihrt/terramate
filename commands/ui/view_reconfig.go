@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/terramate-io/terramate/commands/ui/change"
 	"github.com/terramate-io/terramate/config"
 	"github.com/terramate-io/terramate/errors"
 	"github.com/terramate-io/terramate/project"
@@ -100,8 +101,8 @@ func (m *Model) loadReconfigBundle(b *config.Bundle) error {
 		return errors.E(err, "failed to evaluate input definitions")
 	}
 
-	values := inputsToValueMap(b.Inputs)
-	normalizeBundleRefValues(inputDefs, values)
+	values := change.InputsToValueMap(b.Inputs)
+	change.NormalizeBundleRefValues(inputDefs, values)
 
 	m.reconfigBundle = b
 	m.selectedBundleDefEntry = bde
@@ -177,7 +178,7 @@ func makeBundleDefinitionEntry(root *config.Root, b *config.Bundle) *config.Bund
 }
 
 // buildReconfigBundles returns bundles that do not already have a pending
-// ChangeReconfig entry, sorted into grouped display order so that
+// change.KindReconfig entry, sorted into grouped display order so that
 // the flat cursor index matches the visual position.
 func (m Model) buildReconfigBundles() []*config.Bundle {
 	f := m.reconfigEnvFilter.current()
@@ -225,7 +226,7 @@ func (m Model) reconfigListHeader(innerWidth int) string {
 		if b.DefinitionMetadata.Class != "" {
 			fields = append(fields, detailField{label: "Class", value: b.DefinitionMetadata.Class, truncEnd: true})
 		}
-		fields = append(fields, detailField{label: "Alias", value: displayNameFromAlias(b.Alias, b.Name), truncEnd: true})
+		fields = append(fields, detailField{label: "Alias", value: change.DisplayNameFromAlias(b.Alias, b.Name), truncEnd: true})
 		envName := "n/a"
 		if b.Environment != nil {
 			envName = b.Environment.Name
@@ -256,7 +257,7 @@ func (m Model) renderReconfigInputView() string {
 
 	b := m.reconfigBundle
 	aliasStyle := lipgloss.NewStyle().Foreground(colorCreate)
-	alias := aliasStyle.Render(displayNameFromAlias(b.Alias, b.Name))
+	alias := aliasStyle.Render(change.DisplayNameFromAlias(b.Alias, b.Name))
 	envStyle := lipgloss.NewStyle().Foreground(colorPromote)
 	var envTag string
 	if b.Environment != nil {
@@ -324,8 +325,7 @@ func (m Model) updateReconfigInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.inputsForm.State() {
 	case InputsFormAccepted:
 		if m.inputsForm.HasPendingChanges() {
-			change, err := NewReconfigChange(
-				est, m.reconfigBundle, m.selectedBundleDefEntry,
+			ch, err := change.NewReconfig(est.changeSession(), m.reconfigBundle, m.selectedBundleDefEntry,
 				m.inputsForm.Schemactx, m.inputsForm.InputDefs, m.inputsForm.UserValues(),
 			)
 			if err != nil {
@@ -333,7 +333,7 @@ func (m Model) updateReconfigInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.inputsForm.state = InputsFormActive
 				break
 			}
-			if err := change.Save(est.Registry.Environments); err != nil {
+			if err := ch.Save(est.Registry.Environments); err != nil {
 				m.inputsForm.SetValidationError(err)
 				m.inputsForm.state = InputsFormActive
 				break
@@ -343,7 +343,7 @@ func (m Model) updateReconfigInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.inputsForm.state = InputsFormActive
 				break
 			}
-			m.recordSessionChange(change)
+			m.recordSessionChange(ch)
 		}
 		m.reconfigFromOverview = false
 		m.viewState = ViewOverview

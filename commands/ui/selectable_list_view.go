@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/terramate-io/terramate/commands/ui/change"
 	"github.com/terramate-io/terramate/config"
 )
 
@@ -260,7 +261,7 @@ func renderGroupedItems(m *Model, groups []bundleGroup, cursor, contentWidth int
 	if opts.padAliases {
 		for _, g := range groups {
 			for _, b := range g.bundles {
-				w := lipgloss.Width(displayNameFromAlias(b.Alias, b.Name))
+				w := lipgloss.Width(change.DisplayNameFromAlias(b.Alias, b.Name))
 				if w > maxAliasWidth {
 					maxAliasWidth = w
 				}
@@ -292,7 +293,7 @@ func renderGroupedItems(m *Model, groups []bundleGroup, cursor, contentWidth int
 			}
 			visualIdx++
 
-			displayName := displayNameFromAlias(b.Alias, b.Name)
+			displayName := change.DisplayNameFromAlias(b.Alias, b.Name)
 			pad := ""
 			if opts.padAliases {
 				pad = strings.Repeat(" ", maxAliasWidth-lipgloss.Width(displayName)+2)

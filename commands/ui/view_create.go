@@ -10,12 +10,9 @@ import (
 	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/zclconf/go-cty/cty"
 
-	"github.com/terramate-io/terramate/config"
+	"github.com/terramate-io/terramate/commands/ui/change"
 	"github.com/terramate-io/terramate/errors"
-	"github.com/terramate-io/terramate/hcl"
-	"github.com/terramate-io/terramate/hcl/eval"
 )
 
 func (m Model) updateCreateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -73,8 +70,8 @@ func (m Model) updateCreateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch m.inputsForm.State() {
 	case InputsFormAccepted:
-		change, err := NewCreateChange(
-			est,
+		ch, err := change.NewCreate(
+			est.changeSession(),
 			m.selectedEnv,
 			m.selectedBundleDefEntry,
 			m.inputsForm.Schemactx,
@@ -89,7 +86,7 @@ func (m Model) updateCreateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		// Save immediately — bundles must be in the registry for
 		// reference resolution (nested bundles, alias evaluation).
-		if err := change.Save(est.Registry.Environments); err != nil {
+		if err := ch.Save(est.Registry.Environments); err != nil {
 			m.inputsForm.SetValidationError(err)
 			m.inputsForm.state = InputsFormActive
 			break
@@ -99,10 +96,10 @@ func (m Model) updateCreateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.inputsForm.state = InputsFormActive
 			break
 		}
-		m.recordSessionChange(change)
+		m.recordSessionChange(ch)
 
 		if len(m.createStack) > 0 {
-			m.restoreCreateFrame(change.Alias)
+			m.restoreCreateFrame(ch.Alias)
 		} else {
 			m.selectedEnv = nil
 			m.viewState = ViewOverview
@@ -123,31 +120,6 @@ func (m Model) updateCreateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, cmd
-}
-
-func setupExplicitBundleAlias(evalctx *eval.Context, bundleDef *hcl.DefineBundle) (string, error) {
-	if bundleDef.Alias != nil {
-		alias, err := config.EvalString(evalctx, bundleDef.Alias.Expr, "alias")
-		if err != nil {
-			return "", err
-		}
-		if alias == "" {
-			return "", nil
-		}
-
-		var bundleVals map[string]cty.Value
-		if ns, ok := evalctx.GetNamespace("bundle"); ok {
-			bundleVals = ns.AsValueMap()
-		}
-		if bundleVals == nil {
-			bundleVals = map[string]cty.Value{}
-		}
-		bundleVals["alias"] = cty.StringVal(alias)
-		evalctx.SetNamespace("bundle", bundleVals)
-
-		return alias, nil
-	}
-	return "", nil
 }
 
 func (m Model) renderCreateInputView() string {
@@ -255,7 +227,7 @@ func (m Model) renderInputsPage() string {
 // For env-requiring bundles, goes back to env select. Otherwise, goes to bundle select.
 func (m Model) createBackView() ViewState {
 	if m.selectedBundleDefEntry != nil &&
-		bundleRequiresEnv(m.EngineState.Evalctx, m.selectedBundleDefEntry.Define) &&
+		change.BundleRequiresEnv(m.EngineState.Evalctx, m.selectedBundleDefEntry.Define) &&
 		len(m.EngineState.Registry.Environments) > 0 {
 		return ViewCreateEnvSelect
 	}

@@ -5,8 +5,6 @@ package ui
 
 import (
 	"context"
-	"os"
-	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -16,8 +14,8 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/terramate-io/terramate/commands"
+	"github.com/terramate-io/terramate/commands/ui/change"
 	"github.com/terramate-io/terramate/config"
-	"github.com/terramate-io/terramate/errors"
 	"github.com/terramate-io/terramate/generate/resolve"
 	"github.com/terramate-io/terramate/hcl/eval"
 	"github.com/terramate-io/terramate/scaffold/manifest"
@@ -107,6 +105,17 @@ type EngineState struct {
 	AgentAddress    string
 }
 
+// changeSession projects the engine state onto the narrow dependency
+// set of the change package.
+func (est *EngineState) changeSession() change.Session {
+	return change.Session{
+		Context:    est.Context,
+		Registry:   est.Registry,
+		RootDir:    est.Root.HostDir(),
+		WorkingDir: est.WorkingDir,
+	}
+}
+
 // Model is the main BubbleTea model for the prompt UI.
 type Model struct {
 	// Layout
@@ -127,12 +136,12 @@ type Model struct {
 	commandIdx int
 	commands   []string
 
-	summaryCursor        int                     // Selected row in the session bundles list
-	changeLog            []string                // cumulative log of all saved changes across the session (for CLI exit)
-	sessionChanges       map[string][]ChangeKind // bundle key → ordered list of change kinds applied this session
-	lastSavedKey         string                  // bundle key of the most recently saved change (cleared on next keypress)
-	confirmingCreateExit bool                    // true when showing wizard exit confirmation
-	createExitConfirmIdx int                     // 0 = Yes, 1 = No
+	summaryCursor        int                      // Selected row in the session bundles list
+	changeLog            []string                 // cumulative log of all saved changes across the session (for CLI exit)
+	sessionChanges       map[string][]change.Kind // bundle key → ordered list of change kinds applied this session
+	lastSavedKey         string                   // bundle key of the most recently saved change (cleared on next keypress)
+	confirmingCreateExit bool                     // true when showing wizard exit confirmation
+	createExitConfirmIdx int                      // 0 = Yes, 1 = No
 
 	// Bundle selection state (flat list)
 	allFlatBundles         []flatBundleEntry // Unfiltered master list, rebuilt each time Scaffold is entered
@@ -236,16 +245,6 @@ func NewModel(est *EngineState) Model {
 		},
 		focus: FocusCommands,
 	}
-}
-
-// inputsToValueMap converts a map[string]cty.Value to map[string]cty.Value,
-// unwrapping the {"value": v} object that EvalInputs wraps each input in.
-func inputsToValueMap(inputs map[string]cty.Value) map[string]cty.Value {
-	out := make(map[string]cty.Value, len(inputs))
-	for k, v := range inputs {
-		out[k] = v.GetAttr("value")
-	}
-	return out
 }
 
 // rawInputKeys returns the set of input names that were explicitly provided
@@ -485,13 +484,6 @@ func (m Model) finalHelpText(base string) string {
 	return base
 }
 
-func displayNameFromAlias(alias, name string) string {
-	if strings.HasSuffix(alias, ":"+name) {
-		return name
-	}
-	return alias
-}
-
 // MatchingBundleOptions returns bundles that match the given class ID and environment.
 func MatchingBundleOptions(r *config.Registry, classID string, env *config.Environment) []BundleOption {
 	var options []BundleOption
@@ -514,33 +506,4 @@ func MatchingBundleOptions(r *config.Registry, classID string, env *config.Envir
 		options = append(options, opt)
 	}
 	return options
-}
-
-// IsBundleUnique checks that no existing bundle conflicts with the given alias and class.
-func IsBundleUnique(r *config.Registry, alias, classID, hostPath string, env *config.Environment) error {
-	skipFileExistsCheck := false
-
-	for _, b := range r.Bundles {
-		bundleHostPath := b.Info.HostPath()
-		if classID == b.DefinitionMetadata.Class && alias == b.Alias {
-			if env != nil && b.Environment != nil {
-				if env.ID == b.Environment.ID {
-					return errors.E("A bundle with alias %q already exists for environment %s at %s", b.Alias, env.ID, bundleHostPath)
-				}
-				// Same alias+class, but different env. This is ok.
-				// We have to assume the file exists already in this case.
-				skipFileExistsCheck = true
-			} else {
-				return errors.E("A bundle with alias %q already exists at %s", b.Alias, bundleHostPath)
-			}
-		}
-	}
-	if hostPath != "" && !skipFileExistsCheck {
-		_, err := os.Stat(hostPath)
-		if err == nil {
-			return errors.E("A file already exists at the target output path %s", hostPath)
-		}
-	}
-
-	return nil
 }
