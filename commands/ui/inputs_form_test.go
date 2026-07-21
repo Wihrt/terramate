@@ -100,9 +100,12 @@ func TestInputsFormTypeConfirmAdvancesAndAccepts(t *testing.T) {
 // down to "typed" and edit only that one.
 func TestInputsFormUserValuesOnlyContainUserSetKeys(t *testing.T) {
 	t.Parallel()
-	// Seed one value as pre-existing (reconfigure-style), set the other by typing.
-	defs := []*config.InputDefinition{strInput("kept", "Kept?"), strInput("typed", "Typed?")}
-	seeded := map[string]cty.Value{"kept": cty.StringVal("from-disk")}
+	// Seed two pre-existing values (reconfigure-style): "kept" flagged as
+	// user-set via userKeys, "defaulted" seeded without a flag — the
+	// constructor then leaves userModified["defaulted"] false
+	// (inputs_form.go:214-222). "typed" is set by typing.
+	defs := []*config.InputDefinition{strInput("kept", "Kept?"), strInput("typed", "Typed?"), strInput("defaulted", "Defaulted?")}
+	seeded := map[string]cty.Value{"kept": cty.StringVal("from-disk"), "defaulted": cty.StringVal("from-default")}
 	f := NewInputsFormWithValues(defs, typeschema.EvalContext{Evalctx: eval.NewContext(nil)}, &config.Registry{}, nil, nil, seeded, seeded, map[string]bool{"kept": true})
 
 	f = pressKeys(f, keyOf(tea.KeyDown))    // move cursor from "kept" to "typed"
@@ -115,6 +118,15 @@ func TestInputsFormUserValuesOnlyContainUserSetKeys(t *testing.T) {
 	}
 	if _, ok := user["kept"]; !ok {
 		t.Fatalf("expected user-flagged seeded key in UserValues, got %#v", user)
+	}
+	// The distinguishing contract of UserValues (inputs_form.go:587-595):
+	// default-seeded values stay out so defaults are evaluated at runtime
+	// rather than baked into the YAML, while Values() still exposes them.
+	if _, ok := user["defaulted"]; ok {
+		t.Fatalf("expected default-seeded key to be excluded from UserValues, got %#v", user)
+	}
+	if v, ok := f.Values()["defaulted"]; !ok || v != cty.StringVal("from-default") {
+		t.Fatalf("expected default-seeded key in Values, got %#v", f.Values())
 	}
 }
 
