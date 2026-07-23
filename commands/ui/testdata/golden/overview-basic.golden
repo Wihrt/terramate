@@ -1,0 +1,9 @@
+                                                                                                    
+  Terramate UI / Select an Action                                                                   
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────╮  
+  │                                                                                              │  
+  │    › Scaffold          Reconfigure          Promote          Quit                            │  
+  │                                                                                              │  
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────╯  
+  s: scaffold • r: reconfigure • p: promote • q: quit      Scaffold infrastructure in your project  
+                                                                                                    

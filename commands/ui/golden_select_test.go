@@ -9,7 +9,9 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/terramate-io/terramate/commands/ui/change"
 	"github.com/terramate-io/terramate/config"
+	"github.com/terramate-io/terramate/errors"
 	"github.com/terramate-io/terramate/hcl/info"
 	"github.com/terramate-io/terramate/scaffold/manifest"
 	"github.com/terramate-io/terramate/test/hclutils"
@@ -157,4 +159,40 @@ func TestGoldenCreateSelectView(t *testing.T) {
 	m.applyFlatBundleFilter()
 	m.bundleSelectErr = "boom: could not load bundle definition"
 	assertGolden(t, "create-select-error", m.View())
+}
+
+// TestGoldenOverviewView freezes the overview rendering (renderOverviewView,
+// view_overview.go) before the phase-3c Model decomposition: command grid,
+// inline error area, and the session-history panel in both focus states.
+func TestGoldenOverviewView(t *testing.T) {
+	s := sandbox.New(t)
+	root := s.Config()
+
+	staging, prod := goldenEnvs()
+	bundles := goldenBundles(root.HostDir(), staging, prod)
+	m := Model{
+		EngineState: &EngineState{Root: root, Registry: &config.Registry{Bundles: bundles, Environments: []*config.Environment{staging, prod}}},
+		width:       100,
+		height:      32,
+		viewState:   ViewOverview,
+		commands:    []string{"Scaffold", "Reconfigure", "Promote", "Quit"},
+		focus:       FocusCommands,
+	}
+
+	assertGolden(t, "overview-basic", m.View())
+
+	// Inline error area below the command grid.
+	m.currentErr = errors.E("No bundles available.")
+	assertGolden(t, "overview-error", m.View())
+	m.currentErr = nil
+
+	// Session-history panel: vpc-1 reconfigured this session and last saved.
+	key := sessionBundleKey(bundles[0].Info.HostPath(), bundles[0].Environment)
+	m.sessionChanges = map[string][]change.Kind{key: {change.KindReconfig}}
+	m.lastSavedKey = key
+	assertGolden(t, "overview-session-unfocused", m.View())
+
+	// Same state with the summary panel focused.
+	m.focus = FocusSummary
+	assertGolden(t, "overview-session-focused", m.View())
 }

@@ -1,0 +1,17 @@
+                                                                                                                      
+  Terramate UI / Select an Action                                                                                     
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────╮                    
+  │                                                                                              │                    
+  │    › Scaffold          Reconfigure          Promote          Quit                            │                    
+  │                                                                                              │                    
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────╯                    
+  ╭──────────────────────────────────────────────────────────────────────────────────────────────╮                    
+  │                                                                                              │                    
+  │  Recently Changed — Select to Reconfigure                                                    │                    
+  │                                                                                              │                    
+  │  vpc v1.0.0                                                                                  │                    
+  │      vpc-1 [Staging] reconfigured ✓ saved                                                    │                    
+  │                                                                                              │                    
+  ╰──────────────────────────────────────────────────────────────────────────────────────────────╯                    
+  s: scaffold • r: reconfigure • p: promote • q: quit • tab: switch section  Scaffold infrastructure in your project  
+                                                                                                                      
