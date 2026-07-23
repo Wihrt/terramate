@@ -242,7 +242,7 @@ func TestChangeCreateReconfigRoundTrip(t *testing.T) {
 	}
 
 	// Mirrors the bundle-selection wiring in view_create_select.go:190-233.
-	bundleEvalctx := newBundleEvalContext(est.Evalctx, est.Registry, nil)
+	bundleEvalctx := change.NewBundleEvalContext(est.Evalctx, est.Registry, nil)
 	schemas, err := config.EvalBundleSchemaNamespaces(est.Root, est.ResolveAPI, bundleEvalctx, bde.Define, true)
 	if err != nil {
 		t.Fatal(err)
@@ -305,14 +305,12 @@ func TestChangeCreateReconfigRoundTrip(t *testing.T) {
 		ResolveAPI: resolveAPI,
 		Registry:   reg2,
 	}
-	m2 := Model{EngineState: est2}
-
 	// Mirrors loadReconfigBundle, view_reconfig.go:88-113.
-	bde2 := makeBundleDefinitionEntry(est2.Root, bundle)
+	bde2 := change.MakeBundleDefinitionEntry(est2.Root, bundle)
 	if bde2 == nil {
 		t.Fatal("makeBundleDefinitionEntry returned nil for the reloaded bundle")
 	}
-	schemactx2, err := m2.loadBundleEvalContext(bde2, bundle.Environment)
+	schemactx2, err := est2.loadBundleEvalContext(bde2, bundle.Environment)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -440,7 +438,7 @@ environment {
 	}
 
 	// Create leg, env-scoped into staging (view_create_select.go:190-233 wiring).
-	bundleEvalctx := newBundleEvalContext(est.Evalctx, est.Registry, staging)
+	bundleEvalctx := change.NewBundleEvalContext(est.Evalctx, est.Registry, staging)
 	schemas, err := config.EvalBundleSchemaNamespaces(est.Root, est.ResolveAPI, bundleEvalctx, bde.Define, true)
 	if err != nil {
 		t.Fatal(err)
@@ -505,15 +503,13 @@ environment {
 		ResolveAPI: resolveAPI,
 		Registry:   reg2,
 	}
-	m2 := Model{EngineState: est2}
-
 	// Promote leg — mirrors loadPromoteBundle (view_promote.go:87-112):
 	// the eval context is built against the TARGET env.
-	bde2 := makeBundleDefinitionEntry(est2.Root, bundle)
+	bde2 := change.MakeBundleDefinitionEntry(est2.Root, bundle)
 	if bde2 == nil {
 		t.Fatal("makeBundleDefinitionEntry returned nil for the reloaded bundle")
 	}
-	schemactx2, err := m2.loadBundleEvalContext(bde2, prod2)
+	schemactx2, err := est2.loadBundleEvalContext(bde2, prod2)
 	if err != nil {
 		t.Fatal(err)
 	}

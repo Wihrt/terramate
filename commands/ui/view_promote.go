@@ -9,7 +9,6 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/zclconf/go-cty/cty"
 
 	"github.com/terramate-io/terramate/commands/ui/change"
 	"github.com/terramate-io/terramate/config"
@@ -88,9 +87,9 @@ func (m *Model) applyPromoteFilter() {
 func (m *Model) loadPromoteBundle(b *config.Bundle, targetEnv *config.Environment) error {
 	est := m.EngineState
 	// We create a BundleDefinitionEntry
-	bde := makeBundleDefinitionEntry(est.Root, b)
+	bde := change.MakeBundleDefinitionEntry(est.Root, b)
 
-	schemactx, err := m.loadBundleEvalContext(bde, targetEnv)
+	schemactx, err := m.EngineState.loadBundleEvalContext(bde, targetEnv)
 	if err != nil {
 		return err
 	}
@@ -105,7 +104,7 @@ func (m *Model) loadPromoteBundle(b *config.Bundle, targetEnv *config.Environmen
 
 	m.promoteBundle = b
 	m.selectedBundleDefEntry = bde
-	m.inputsForm = NewInputsFormWithValues(inputDefs, schemactx, est.Registry, targetEnv, b.Environment, values, values, rawInputKeys(b, schemactx.Evalctx))
+	m.inputsForm = NewInputsFormWithValues(inputDefs, schemactx, est.Registry, targetEnv, b.Environment, values, values, change.RawInputKeys(b, schemactx.Evalctx))
 	m.inputsForm.confirmLabel = "Save"
 	m.inputsForm.PanelWidth = m.effectiveWidth()
 	m.inputsForm.PanelHeight = m.effectiveInputsPanelHeight()
@@ -131,7 +130,7 @@ func (m Model) buildPromoteFilters() []envFilterState {
 			if b.Environment == nil || b.Environment.ID != targetEnv.PromoteFrom {
 				continue
 			}
-			if !envAliases[b.Alias] && len(missingBundleRefs(b, envAliases)) == 0 {
+			if !envAliases[b.Alias] && len(change.MissingBundleRefs(b, envAliases)) == 0 {
 				targetEnvHas[targetEnv.ID] = true
 				break
 			}
@@ -192,7 +191,7 @@ func (m Model) buildAllPromoteBundles() ([]*config.Bundle, []*config.Environment
 			if existing[b.Alias] {
 				continue
 			}
-			if len(missingBundleRefs(b, existing)) > 0 {
+			if len(change.MissingBundleRefs(b, existing)) > 0 {
 				continue
 			}
 			if !bundleMatchesFilter(b, query) {
@@ -215,54 +214,6 @@ func (m Model) buildAllPromoteBundles() ([]*config.Bundle, []*config.Environment
 		}
 	}
 	return sorted, sortedEnvs
-}
-
-// missingBundleRefs walks the inputs of b and returns the aliases of any
-// referenced bundles (cty objects with alias, class, environment.available==true)
-// that are absent from targetAliases.
-func missingBundleRefs(b *config.Bundle, targetAliases map[string]bool) []string {
-	seen := make(map[string]bool)
-	var missing []string
-
-	var walk func(v cty.Value)
-	walk = func(v cty.Value) {
-		if !v.IsKnown() || v.IsNull() {
-			return
-		}
-		t := v.Type()
-		if t.IsObjectType() &&
-			t.HasAttribute("alias") &&
-			t.HasAttribute("class") &&
-			t.HasAttribute("environment") {
-			envVal := v.GetAttr("environment")
-			if envVal.IsKnown() && !envVal.IsNull() &&
-				envVal.Type().IsObjectType() &&
-				envVal.Type().HasAttribute("available") {
-				avail := envVal.GetAttr("available")
-				if avail.IsKnown() && !avail.IsNull() && avail.True() {
-					alias := v.GetAttr("alias").AsString()
-					if !targetAliases[alias] && !seen[alias] {
-						seen[alias] = true
-						missing = append(missing, alias)
-					}
-				}
-			}
-			return // do not descend into the referenced bundle's embedded inputs/exports
-		}
-
-		if t.IsObjectType() || t.IsMapType() ||
-			t.IsListType() || t.IsTupleType() || t.IsSetType() {
-			for it := v.ElementIterator(); it.Next(); {
-				_, elem := it.Element()
-				walk(elem)
-			}
-		}
-	}
-
-	for _, v := range b.Inputs {
-		walk(v)
-	}
-	return missing
 }
 
 func envNameForID(envs []*config.Environment, envID string) string {

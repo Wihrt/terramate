@@ -14,7 +14,6 @@ import (
 	"github.com/terramate-io/terramate/config"
 	"github.com/terramate-io/terramate/errors"
 	"github.com/terramate-io/terramate/project"
-	"github.com/terramate-io/terramate/typeschema"
 )
 
 // reconfigEnvTag renders the single [Env] tag annotation of the
@@ -89,9 +88,9 @@ func (m *Model) applyReconfigFilter() {
 func (m *Model) loadReconfigBundle(b *config.Bundle) error {
 	est := m.EngineState
 	// We create a BundleDefinitionEntry
-	bde := makeBundleDefinitionEntry(est.Root, b)
+	bde := change.MakeBundleDefinitionEntry(est.Root, b)
 
-	schemactx, err := m.loadBundleEvalContext(bde, b.Environment)
+	schemactx, err := m.EngineState.loadBundleEvalContext(bde, b.Environment)
 	if err != nil {
 		return err
 	}
@@ -106,7 +105,7 @@ func (m *Model) loadReconfigBundle(b *config.Bundle) error {
 
 	m.reconfigBundle = b
 	m.selectedBundleDefEntry = bde
-	m.inputsForm = NewInputsFormWithValues(inputDefs, schemactx, est.Registry, b.Environment, nil, values, values, rawInputKeys(b, schemactx.Evalctx))
+	m.inputsForm = NewInputsFormWithValues(inputDefs, schemactx, est.Registry, b.Environment, nil, values, values, change.RawInputKeys(b, schemactx.Evalctx))
 	m.inputsForm.confirmLabel = "Save"
 	m.inputsForm.PanelWidth = m.effectiveWidth()
 	m.inputsForm.PanelHeight = m.effectiveInputsPanelHeight()
@@ -145,36 +144,6 @@ func (m Model) buildReconfigFilters() []envFilterState {
 		})
 	}
 	return states
-}
-
-// loadBundleEvalContext creates a bundle eval context and loads the schema namespaces for the given bundle.
-func (m Model) loadBundleEvalContext(bde *config.BundleDefinitionEntry, env *config.Environment) (typeschema.EvalContext, error) {
-	est := m.EngineState
-	evalctx := newBundleEvalContext(est.Evalctx, est.Registry, env)
-	schemas, err := config.EvalBundleSchemaNamespaces(est.Root, est.ResolveAPI, evalctx, bde.Define, true)
-	if err != nil {
-		return typeschema.EvalContext{}, errors.E(err, "Failed to load bundle schema.")
-	}
-	return typeschema.EvalContext{
-		Evalctx: evalctx,
-		Schemas: schemas,
-	}, nil
-}
-
-// makeBundleDefinitionEntry constructs a BundleDefinitionEntry from an existing, already loaded bundle.
-func makeBundleDefinitionEntry(root *config.Root, b *config.Bundle) *config.BundleDefinitionEntry {
-	// This cannot fail. If we have the evaluated config.Bundle already, the HCL define must exist.
-	tree, _ := root.Lookup(b.ResolvedSource)
-	for _, def := range tree.Node.Defines {
-		if def.Bundle != nil {
-			return &config.BundleDefinitionEntry{
-				Tree:     tree,
-				Metadata: &b.DefinitionMetadata,
-				Define:   def.Bundle,
-			}
-		}
-	}
-	return nil
 }
 
 // buildReconfigBundles returns bundles that do not already have a pending

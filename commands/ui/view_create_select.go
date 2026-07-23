@@ -5,7 +5,6 @@ package ui
 
 import (
 	"cmp"
-	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -20,9 +19,7 @@ import (
 	"github.com/terramate-io/terramate/hcl"
 	"github.com/terramate-io/terramate/hcl/eval"
 	"github.com/terramate-io/terramate/scaffold/manifest"
-	"github.com/terramate-io/terramate/stdlib"
 	"github.com/terramate-io/terramate/typeschema"
-	"github.com/zclconf/go-cty/cty"
 )
 
 // buildFlatBundles creates a flat list of all bundles from all collections,
@@ -190,7 +187,7 @@ func (m *Model) loadBundleDef(collIdx, bundleIdx int) error {
 		return nil
 	}
 
-	bundleEvalctx := newBundleEvalContext(est.Evalctx, est.Registry, m.selectedEnv)
+	bundleEvalctx := change.NewBundleEvalContext(est.Evalctx, est.Registry, m.selectedEnv)
 
 	if err := checkBundleEnabled(bundleEvalctx, bde.Define); err != nil {
 		return err
@@ -240,7 +237,7 @@ func (m *Model) finalizeBundleWithEnv() error {
 	est := m.EngineState
 	bde := m.selectedBundleDefEntry
 
-	bundleEvalctx := newBundleEvalContext(est.Evalctx, est.Registry, m.selectedEnv)
+	bundleEvalctx := change.NewBundleEvalContext(est.Evalctx, est.Registry, m.selectedEnv)
 
 	if err := checkBundleEnabled(bundleEvalctx, bde.Define); err != nil {
 		return err
@@ -293,23 +290,6 @@ func checkEnvRequired(evalctx *eval.Context, def *hcl.DefineBundle, envs []*conf
 		return errors.E("This bundle requires environments, but none are configured.")
 	}
 	return nil
-}
-
-func newBundleEvalContext(evalctx *eval.Context, reg *config.Registry, env *config.Environment) *eval.Context {
-	evalctx = evalctx.ChildContext()
-
-	var bundleVals map[string]cty.Value
-	if bundleNS, ok := evalctx.GetNamespace("bundle"); ok {
-		bundleVals = bundleNS.AsValueMap()
-	} else {
-		bundleVals = map[string]cty.Value{}
-	}
-	bundleVals["environment"] = config.MakeEnvObject(env)
-	evalctx.SetNamespace("bundle", bundleVals)
-
-	evalctx.SetFunction(stdlib.Name("bundle"), config.BundleFunc(context.TODO(), reg, env, false))
-	evalctx.SetFunction(stdlib.Name("bundles"), config.BundlesFunc(reg, env))
-	return evalctx
 }
 
 func checkBundleEnabled(evalctx *eval.Context, def *hcl.DefineBundle) error {

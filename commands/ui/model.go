@@ -16,9 +16,11 @@ import (
 	"github.com/terramate-io/terramate/commands"
 	"github.com/terramate-io/terramate/commands/ui/change"
 	"github.com/terramate-io/terramate/config"
+	"github.com/terramate-io/terramate/errors"
 	"github.com/terramate-io/terramate/generate/resolve"
 	"github.com/terramate-io/terramate/hcl/eval"
 	"github.com/terramate-io/terramate/scaffold/manifest"
+	"github.com/terramate-io/terramate/typeschema"
 	"github.com/terramate-io/terramate/ui/tui/cliconfig"
 )
 
@@ -114,6 +116,19 @@ func (est *EngineState) changeSession() change.Session {
 		RootDir:    est.Root.HostDir(),
 		WorkingDir: est.WorkingDir,
 	}
+}
+
+// loadBundleEvalContext creates a bundle eval context and loads the schema namespaces for the given bundle.
+func (est *EngineState) loadBundleEvalContext(bde *config.BundleDefinitionEntry, env *config.Environment) (typeschema.EvalContext, error) {
+	evalctx := change.NewBundleEvalContext(est.Evalctx, est.Registry, env)
+	schemas, err := config.EvalBundleSchemaNamespaces(est.Root, est.ResolveAPI, evalctx, bde.Define, true)
+	if err != nil {
+		return typeschema.EvalContext{}, errors.E(err, "Failed to load bundle schema.")
+	}
+	return typeschema.EvalContext{
+		Evalctx: evalctx,
+		Schemas: schemas,
+	}, nil
 }
 
 // Model is the main BubbleTea model for the prompt UI.
@@ -245,31 +260,6 @@ func NewModel(est *EngineState) Model {
 		},
 		focus: FocusCommands,
 	}
-}
-
-// rawInputKeys returns the set of input names that were explicitly provided
-// in the bundle's YAML file (before default evaluation).
-func rawInputKeys(b *config.Bundle, evalctx *eval.Context) map[string]bool {
-	keys := make(map[string]bool)
-	if b.Inst == nil {
-		return keys
-	}
-	// Block-style: inputs { key = val }
-	if b.Inst.Inputs != nil {
-		for name := range b.Inst.Inputs.Attributes {
-			keys[name] = true
-		}
-	}
-	// Attribute-style: inputs = { key = val }
-	if b.Inst.InputsAttr != nil && evalctx != nil {
-		val, err := evalctx.Eval(b.Inst.InputsAttr.Expr)
-		if err == nil && val.Type().IsObjectType() {
-			for name := range val.AsValueMap() {
-				keys[name] = true
-			}
-		}
-	}
-	return keys
 }
 
 // ctrlCResetMsg is sent after the double-press window expires.
