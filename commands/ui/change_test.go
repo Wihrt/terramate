@@ -308,7 +308,7 @@ func TestChangeCreateReconfigRoundTrip(t *testing.T) {
 	// Mirrors loadReconfigBundle, view_reconfig.go:88-113.
 	bde2 := change.MakeBundleDefinitionEntry(est2.Root, bundle)
 	if bde2 == nil {
-		t.Fatal("makeBundleDefinitionEntry returned nil for the reloaded bundle")
+		t.Fatal("MakeBundleDefinitionEntry returned nil for the reloaded bundle")
 	}
 	schemactx2, err := est2.loadBundleEvalContext(bde2, bundle.Environment)
 	if err != nil {
@@ -507,7 +507,7 @@ environment {
 	// the eval context is built against the TARGET env.
 	bde2 := change.MakeBundleDefinitionEntry(est2.Root, bundle)
 	if bde2 == nil {
-		t.Fatal("makeBundleDefinitionEntry returned nil for the reloaded bundle")
+		t.Fatal("MakeBundleDefinitionEntry returned nil for the reloaded bundle")
 	}
 	schemactx2, err := est2.loadBundleEvalContext(bde2, prod2)
 	if err != nil {
@@ -659,7 +659,7 @@ func TestChangeSaveEmptyDescriptionInputNotDeduped(t *testing.T) {
 }
 
 // TestChangeSaveWritesBundleRefAsAlias characterizes the outbound
-// bundle-ref conversion (change/change.go:402-410): inputs typed BundleType hold
+// bundle-ref conversion (change/yamlio.go:59-64): inputs typed BundleType hold
 // resolved objects internally but are written to YAML as their alias
 // string.
 func TestChangeSaveWritesBundleRefAsAlias(t *testing.T) {
