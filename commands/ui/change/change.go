@@ -160,7 +160,7 @@ func NewCreate(
 	}
 
 	// Final check: Is the bundle unique?
-	if err := IsBundleUnique(s.Registry, alias, bde.Metadata.Class, hostPath, env); err != nil {
+	if err := isBundleUnique(s.Registry, alias, bde.Metadata.Class, hostPath, env); err != nil {
 		return Change{}, err
 	}
 

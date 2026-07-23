@@ -130,7 +130,7 @@ func TestChangeSaveRejectsNonYAMLExistingFileForEnvMerge(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error when merging into a non-.tm.yml file")
 	}
-	// Characterizes the exact user-facing message (change.go:535).
+	// Characterizes the exact user-facing message (change/yamlio.go:126).
 	wantSub := "is not a .tm.yml file"
 	if !strings.Contains(err.Error(), wantSub) {
 		t.Fatalf("expected error containing %q, got %q", wantSub, err.Error())
@@ -348,14 +348,14 @@ func TestChangeCreateReconfigRoundTrip(t *testing.T) {
 // the existing file (mergeBundleYAMLEnv append + registry-order sort).
 //
 // Wiring mirrors loadPromoteBundle (view_promote.go:87-112) and
-// updatePromoteInput (view_promote.go:382-405).
+// updatePromoteInput (view_promote.go:357-380).
 func TestChangePromoteRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	// Same skeleton as TestChangeCreateReconfigRoundTrip, plus:
 	// two top-level environment blocks (prod promotes from staging) and
 	// environments { required = true } on the definition so the create
-	// leg binds to an environment (change.go:149-152).
+	// leg binds to an environment (change/change.go:157-160).
 	s := sandbox.NoGit(t, true)
 	s.BuildTree([]string{
 		"f:/envs.tm:" + `environment {
@@ -544,18 +544,18 @@ environment {
 		t.Fatal(err)
 	}
 	// Freezes: both env blocks present, sorted in registry order
-	// (staging before prod, mergeBundleYAMLEnv change.go:596-605), env
+	// (staging before prod, mergeBundleYAMLEnv change/yamlio.go:159-200), env
 	// inputs deduped only against the (empty) top-level spec inputs.
 	assertGolden(t, "change-roundtrip-promoted", normalizeUUID(t, string(promotedContent)))
 }
 
 // describedInputDefs returns two string input definitions with NON-EMPTY
 // descriptions. Non-empty descriptions are required for the dedup in
-// mergeBundleYAMLEnv to fire: formatTmdoc (change.go:612-622) produces
+// mergeBundleYAMLEnv to fire: formatTmdoc (change/yamlio.go:203) produces
 // "# tmdoc: " WITH a trailing space for an empty description, and that
 // trailing space is stripped only from the final serialized output by
-// trailingWSRE (change.go:529, 610) — never from the in-memory comment
-// fields that mergeBundleYAMLEnv compares (change.go:574-582). So a
+// trailingWSRE (change/yamlio.go:201, 120) — never from the in-memory comment
+// fields that mergeBundleYAMLEnv compares (change/yamlio.go:159-200). So a
 // freshly generated comment ("# tmdoc: ") never string-equals the
 // disk-round-tripped one ("# tmdoc:") when the description is empty, and
 // the dedup silently never fires. With a non-empty description the tmdoc
@@ -578,7 +578,7 @@ func describedInputDefs() []*config.InputDefinition {
 }
 
 // TestChangeSaveDedupsEnvInputAgainstSpec characterizes the ACTIVE branch
-// of mergeBundleYAMLEnv's dedup (change.go:571-587): an env input is
+// of mergeBundleYAMLEnv's dedup (change/yamlio.go:159-200): an env input is
 // dropped when an identical entry (same key, same comments, deep-equal
 // value) already exists in the TOP-LEVEL spec inputs. The first save is
 // top-level (spec inputs populated); the second save is env-scoped with
@@ -619,15 +619,15 @@ func TestChangeSaveDedupsEnvInputAgainstSpec(t *testing.T) {
 }
 
 // TestChangeSaveEmptyDescriptionInputNotDeduped freezes a quirk of the
-// dedup in mergeBundleYAMLEnv (change.go:571-587): when an input's
+// dedup in mergeBundleYAMLEnv (change/yamlio.go:159-200): when an input's
 // Description is EMPTY, an env input identical to its top-level spec
 // counterpart is NOT deduped — it is duplicated into the env block.
 //
-// Root cause: formatTmdoc (change.go:612-622) renders an empty
+// Root cause: formatTmdoc (change/yamlio.go:203) renders an empty
 // description as "# tmdoc: " WITH a trailing space. trailingWSRE
-// (change.go:529, 610) strips trailing whitespace only from the final
+// (change/yamlio.go:201, 120) strips trailing whitespace only from the final
 // serialized YAML output, not from the in-memory comment fields compared
-// by mergeBundleYAMLEnv (change.go:574-582). So on the second save the
+// by mergeBundleYAMLEnv (change/yamlio.go:159-200). So on the second save the
 // freshly generated env input carries HeadComment "# tmdoc: " while the
 // spec input round-tripped from disk carries "# tmdoc:", the string
 // comparison fails, and the dedup never fires. This behavior must
@@ -663,7 +663,7 @@ func TestChangeSaveEmptyDescriptionInputNotDeduped(t *testing.T) {
 }
 
 // TestChangeSaveWritesBundleRefAsAlias characterizes the outbound
-// bundle-ref conversion (change.go:468-474): inputs typed BundleType hold
+// bundle-ref conversion (change/change.go:402-410): inputs typed BundleType hold
 // resolved objects internally but are written to YAML as their alias
 // string.
 func TestChangeSaveWritesBundleRefAsAlias(t *testing.T) {

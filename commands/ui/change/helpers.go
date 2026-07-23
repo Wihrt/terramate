@@ -52,8 +52,8 @@ func DisplayNameFromAlias(alias, name string) string {
 	return alias
 }
 
-// IsBundleUnique checks that no existing bundle conflicts with the given alias and class.
-func IsBundleUnique(r *config.Registry, alias, classID, hostPath string, env *config.Environment) error {
+// isBundleUnique checks that no existing bundle conflicts with the given alias and class.
+func isBundleUnique(r *config.Registry, alias, classID, hostPath string, env *config.Environment) error {
 	skipFileExistsCheck := false
 
 	for _, b := range r.Bundles {
