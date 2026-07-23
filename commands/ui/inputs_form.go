@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/zclconf/go-cty/cty"
 
+	"github.com/terramate-io/terramate/commands/ui/change"
 	"github.com/terramate-io/terramate/config"
 	"github.com/terramate-io/terramate/errors"
 	"github.com/terramate-io/terramate/typeschema"
@@ -416,7 +417,7 @@ func (f *InputsForm) HighlightedInputName() string {
 		return ""
 	}
 	name := f.InputDefs[combined[f.completedCursor]].Name
-	if isPseudoKey(name) {
+	if change.IsPseudoKey(name) {
 		return ""
 	}
 	return name
@@ -564,13 +565,6 @@ func (f *InputsForm) activeTitle() string {
 	return "Current Input"
 }
 
-// isPseudoKey returns true for reserved input names injected by the caller
-// (e.g. "__output_name__", "__output_path__"). These are filtered out of
-// Values() so they don't leak into bundle input maps.
-func isPseudoKey(name string) bool {
-	return strings.HasPrefix(name, "__") && strings.HasSuffix(name, "__")
-}
-
 // Values returns a copy of the collected input values, excluding synthetic
 // keys injected by the caller.
 func (f *InputsForm) Values() map[string]cty.Value {
@@ -587,7 +581,7 @@ func (f *InputsForm) Values() map[string]cty.Value {
 func (f *InputsForm) UserValues() map[string]cty.Value {
 	cp := make(map[string]cty.Value, len(f.widgets))
 	for name, w := range f.widgets {
-		if f.userModified[name] || isPseudoKey(name) {
+		if f.userModified[name] || change.IsPseudoKey(name) {
 			cp[name] = w.WidgetContext().Value
 		}
 	}
@@ -597,7 +591,7 @@ func (f *InputsForm) UserValues() map[string]cty.Value {
 // hasAnyValues returns true if the user has entered any non-pseudo values.
 func (f *InputsForm) hasAnyValues() bool {
 	for name := range f.widgets {
-		if isPseudoKey(name) {
+		if change.IsPseudoKey(name) {
 			continue
 		}
 		if f.userModified[name] {
@@ -1850,11 +1844,6 @@ func (f InputsForm) renderInlineButtons() string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, confirmBtn, " ", cancelBtn)
 }
 
-const (
-	pseudoKeyOutputName = "__output_name__"
-	pseudoKeyOutputPath = "__output_path__"
-)
-
 // pseudoStringInput creates a synthetic string InputDefinition for use as
 // an extra form field (e.g. instance name, output path) that is not part of
 // the bundle's declared inputs.
@@ -1868,7 +1857,7 @@ func pseudoStringInput(name, title, description string) *config.InputDefinition 
 }
 
 func pseudoOutputPathInput(title, description string) *config.InputDefinition {
-	def := pseudoStringInput(pseudoKeyOutputPath, title, description)
+	def := pseudoStringInput(change.PseudoKeyOutputPath, title, description)
 	def.Validate = func(val cty.Value) error {
 		s := val.AsString()
 		if !strings.HasSuffix(s, ".tm.yaml") && !strings.HasSuffix(s, ".tm.yml") {
@@ -1877,14 +1866,6 @@ func pseudoOutputPathInput(title, description string) *config.InputDefinition {
 		return nil
 	}
 	return def
-}
-
-// extractPseudoString reads a synthetic string value from a values map.
-func extractPseudoString(values map[string]cty.Value, key string) string {
-	if v, ok := values[key]; ok && v != cty.NilVal {
-		return v.AsString()
-	}
-	return ""
 }
 
 // pushObjectEditFrame saves the current inputs form state for object input editing.

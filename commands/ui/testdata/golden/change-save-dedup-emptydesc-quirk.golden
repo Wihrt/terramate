@@ -1,0 +1,20 @@
+apiVersion: terramate.io/cli/v1
+kind: BundleInstance
+metadata:
+  name: my-bundle
+  uuid: 00000000-0000-0000-0000-000000000001
+spec:
+  source: /bundles/vpc
+  inputs:
+    # tmdoc:
+    region: fr-par
+    # tmdoc:
+    name: main
+environments:
+  staging:
+    source: /bundles/vpc
+    inputs:
+      # tmdoc:
+      region: fr-par
+      # tmdoc:
+      name: staging-main

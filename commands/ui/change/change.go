@@ -1,17 +1,16 @@
-// Copyright 2025 Terramate GmbH
+// Copyright 2026 Terramate GmbH
 // SPDX-License-Identifier: MPL-2.0
 
-package ui
+// Package change implements the bundle-change domain of the interactive
+// UI: building create/reconfigure/promote changes from form values and
+// persisting them as YAML bundle instance files. It has no dependency on
+// the terminal rendering layer.
+package change
 
 import (
-	"cmp"
+	"context"
 	"fmt"
-	"os"
 	"path/filepath"
-	"reflect"
-	"regexp"
-	"slices"
-	"strings"
 
 	"github.com/google/uuid"
 	hhcl "github.com/terramate-io/hcl/v2"
@@ -25,22 +24,21 @@ import (
 	"github.com/terramate-io/terramate/project"
 	"github.com/terramate-io/terramate/stdlib"
 	"github.com/terramate-io/terramate/typeschema"
-	"github.com/terramate-io/terramate/yaml"
 )
 
-// ChangeKind indicates the type of change.
-type ChangeKind string
+// Kind indicates the type of change.
+type Kind string
 
-// ChangeCreate and the following constants enumerate the supported change kinds.
+// KindCreate and the following constants enumerate the supported change kinds.
 const (
-	ChangeCreate   ChangeKind = "change_create"
-	ChangeReconfig ChangeKind = "change_reconfig"
-	ChangePromote  ChangeKind = "change_promote"
+	KindCreate   Kind = "change_create"
+	KindReconfig Kind = "change_reconfig"
+	KindPromote  Kind = "change_promote"
 )
 
 // Change represents a bundle change (create, reconfigure, or promote).
 type Change struct {
-	Kind        ChangeKind
+	Kind        Kind
 	HostPath    string
 	ProjectPath string
 	Name        string
@@ -66,9 +64,19 @@ type Change struct {
 
 }
 
-// NewCreateChange builds a Change that represents a new bundle creation.
-func NewCreateChange(
-	est *EngineState,
+// Session is the narrow slice of engine state the change layer reads.
+// The TUI projects its EngineState onto it; tests can construct it
+// directly.
+type Session struct {
+	Context    context.Context
+	Registry   *config.Registry
+	RootDir    string // host absolute path of the project root
+	WorkingDir string
+}
+
+// NewCreate builds a Change that represents a new bundle creation.
+func NewCreate(
+	s Session,
 	activeEnv *config.Environment,
 	bde *config.BundleDefinitionEntry,
 	schemactx typeschema.EvalContext,
@@ -76,8 +84,8 @@ func NewCreateChange(
 	values map[string]cty.Value,
 ) (Change, error) {
 	schemactx = schemactx.ChildContext()
-	schemactx.Evalctx.SetFunction(stdlib.Name("bundle"), config.BundleFunc(est.Context, est.Registry, activeEnv, false))
-	schemactx.Evalctx.SetFunction(stdlib.Name("bundles"), config.BundlesFunc(est.Registry, activeEnv))
+	schemactx.Evalctx.SetFunction(stdlib.Name("bundle"), config.BundleFunc(s.Context, s.Registry, activeEnv, false))
+	schemactx.Evalctx.SetFunction(stdlib.Name("bundles"), config.BundlesFunc(s.Registry, activeEnv))
 
 	// The form may or may not contain values for all defaults.
 	// In this step we re-run input evaluation like it would be done if this was a bundle instance that
@@ -112,11 +120,11 @@ func NewCreateChange(
 
 	outputPath := bundleDef.ScaffoldingPath
 	if outputPath == "" {
-		outputPath = extractPseudoString(values, pseudoKeyOutputPath)
+		outputPath = ExtractPseudoString(values, PseudoKeyOutputPath)
 	}
 	outputName := bundleDef.ScaffoldingName
 	if outputName == "" {
-		outputName = extractPseudoString(values, pseudoKeyOutputName)
+		outputName = ExtractPseudoString(values, PseudoKeyOutputName)
 	}
 
 	if outputPath == "" {
@@ -129,12 +137,12 @@ func NewCreateChange(
 	var hostPath string
 	var projPath string
 	if filepath.IsAbs(outputPath) {
-		hostPath = project.NewPath(outputPath).HostPath(est.Root.HostDir())
+		hostPath = project.NewPath(outputPath).HostPath(s.RootDir)
 		projPath = outputPath
 	} else {
 
-		hostPath = filepath.Join(est.WorkingDir, outputPath)
-		projPath = project.PrjAbsPath(est.Root.HostDir(), hostPath).String()
+		hostPath = filepath.Join(s.WorkingDir, outputPath)
+		projPath = project.PrjAbsPath(s.RootDir, hostPath).String()
 	}
 	hostPath = fixupFileExtension("yaml", hostPath)
 
@@ -147,17 +155,17 @@ func NewCreateChange(
 	}
 
 	var env *config.Environment
-	if activeEnv != nil && bundleRequiresEnv(schemactx.Evalctx, bde.Define) {
+	if activeEnv != nil && BundleRequiresEnv(schemactx.Evalctx, bde.Define) {
 		env = activeEnv
 	}
 
 	// Final check: Is the bundle unique?
-	if err := IsBundleUnique(est.Registry, alias, bde.Metadata.Class, hostPath, env); err != nil {
+	if err := isBundleUnique(s.Registry, alias, bde.Metadata.Class, hostPath, env); err != nil {
 		return Change{}, err
 	}
 
 	return Change{
-		Kind:           ChangeCreate,
+		Kind:           KindCreate,
 		HostPath:       hostPath,
 		ProjectPath:    projPath,
 		Name:           outputName,
@@ -165,7 +173,7 @@ func NewCreateChange(
 		Source:         bde.Source,
 		Env:            env,
 		Alias:          alias,
-		DisplayName:    displayNameFromAlias(alias, outputName),
+		DisplayName:    DisplayNameFromAlias(alias, outputName),
 		Metadata:       *bde.Metadata,
 		BundleDefEntry: bde,
 		InputDefs:      inputDefs,
@@ -174,9 +182,9 @@ func NewCreateChange(
 	}, nil
 }
 
-// NewReconfigChange builds a Change that represents reconfiguring an existing bundle.
-func NewReconfigChange(
-	est *EngineState,
+// NewReconfig builds a Change that represents reconfiguring an existing bundle.
+func NewReconfig(
+	s Session,
 	bundle *config.Bundle,
 	bde *config.BundleDefinitionEntry,
 	schemactx typeschema.EvalContext,
@@ -184,11 +192,11 @@ func NewReconfigChange(
 	values map[string]cty.Value,
 ) (Change, error) {
 	schemactx = schemactx.ChildContext()
-	schemactx.Evalctx.SetFunction(stdlib.Name("bundle"), config.BundleFunc(est.Context, est.Registry, bundle.Environment, false))
-	schemactx.Evalctx.SetFunction(stdlib.Name("bundles"), config.BundlesFunc(est.Registry, bundle.Environment))
+	schemactx.Evalctx.SetFunction(stdlib.Name("bundle"), config.BundleFunc(s.Context, s.Registry, bundle.Environment, false))
+	schemactx.Evalctx.SetFunction(stdlib.Name("bundles"), config.BundlesFunc(s.Registry, bundle.Environment))
 
 	hostPath := bundle.Info.HostPath()
-	projPath := project.PrjAbsPath(est.Root.HostDir(), hostPath).String()
+	projPath := project.PrjAbsPath(s.RootDir, hostPath).String()
 
 	// The form may or may not contain values for all defaults.
 	// In this step we re-run input evaluation like it would be done if this was a bundle instance that
@@ -233,7 +241,7 @@ func NewReconfigChange(
 	}
 
 	return Change{
-		Kind:           ChangeReconfig,
+		Kind:           KindReconfig,
 		HostPath:       hostPath,
 		ProjectPath:    projPath,
 		Name:           bundle.Name,
@@ -248,14 +256,14 @@ func NewReconfigChange(
 		Values:         allValues,
 		UserValues:     values,
 		OriginalBundle: bundle,
-		OriginalValues: inputsToValueMap(bundle.Inputs),
+		OriginalValues: InputsToValueMap(bundle.Inputs),
 		Warnings:       warnings,
 	}, nil
 }
 
-// NewPromoteChange builds a Change that represents promoting a bundle to another environment.
-func NewPromoteChange(
-	est *EngineState,
+// NewPromote builds a Change that represents promoting a bundle to another environment.
+func NewPromote(
+	s Session,
 	env *config.Environment,
 	bundle *config.Bundle,
 	bde *config.BundleDefinitionEntry,
@@ -264,11 +272,11 @@ func NewPromoteChange(
 	values map[string]cty.Value,
 ) (Change, error) {
 	schemactx = schemactx.ChildContext()
-	schemactx.Evalctx.SetFunction(stdlib.Name("bundle"), config.BundleFunc(est.Context, est.Registry, env, false))
-	schemactx.Evalctx.SetFunction(stdlib.Name("bundles"), config.BundlesFunc(est.Registry, env))
+	schemactx.Evalctx.SetFunction(stdlib.Name("bundle"), config.BundleFunc(s.Context, s.Registry, env, false))
+	schemactx.Evalctx.SetFunction(stdlib.Name("bundles"), config.BundlesFunc(s.Registry, env))
 
 	hostPath := bundle.Info.HostPath()
-	projPath := project.PrjAbsPath(est.Root.HostDir(), hostPath).String()
+	projPath := project.PrjAbsPath(s.RootDir, hostPath).String()
 
 	// The form may or may not contain values for all defaults.
 	// In this step we re-run input evaluation like it would be done if this was a bundle instance that
@@ -313,7 +321,7 @@ func NewPromoteChange(
 	}
 
 	return Change{
-		Kind:           ChangePromote,
+		Kind:           KindPromote,
 		HostPath:       hostPath,
 		ProjectPath:    projPath,
 		Name:           bundle.Name,
@@ -329,7 +337,7 @@ func NewPromoteChange(
 		Values:         allValues,
 		UserValues:     values,
 		OriginalBundle: bundle,
-		OriginalValues: inputsToValueMap(bundle.Inputs),
+		OriginalValues: InputsToValueMap(bundle.Inputs),
 		Warnings:       warnings,
 	}, nil
 }
@@ -347,7 +355,7 @@ func reEvalAllInputs(
 		Inputs: ast.NewMergedBlock("inputs", []string{}),
 	}
 	for k, v := range values {
-		if v == cty.NilVal || isPseudoKey(k) {
+		if v == cty.NilVal || IsPseudoKey(k) {
 			continue
 		}
 		r := hhcl.Range{
@@ -390,11 +398,11 @@ func reEvalAllInputs(
 	return result, nil
 }
 
-// normalizeBundleRefValues converts resolved bundle objects back to alias strings.
+// NormalizeBundleRefValues converts resolved bundle objects back to alias strings.
 // When reconfiguring or promoting, bundle-ref inputs are loaded as full objects
 // (with alias, uuid, etc.) from disk. The type system expects strings, so we
 // extract the alias before the values enter the form.
-func normalizeBundleRefValues(inputDefs []*config.InputDefinition, values map[string]cty.Value) map[string]cty.Value {
+func NormalizeBundleRefValues(inputDefs []*config.InputDefinition, values map[string]cty.Value) map[string]cty.Value {
 	for _, def := range inputDefs {
 		if _, isBundleType := def.Type.(*typeschema.BundleType); !isBundleType {
 			continue
@@ -429,238 +437,4 @@ func checkBundleRefsResolved(inputDefs []*config.InputDefinition, values map[str
 		}
 	}
 	return nil
-}
-
-// Save writes the change to disk as a YAML bundle instance file.
-func (c *Change) Save(envs []*config.Environment) error {
-	var existing *yaml.BundleInstance
-
-	_, err := os.Stat(c.HostPath)
-	overwrite := err == nil
-
-	// If the change doesn't have an env, the bundle doesn't have envs, so no need for merging.
-	if overwrite && c.Env != nil {
-		var err error
-		existing, err = loadBundleYAMLConfig(c.HostPath)
-		if err != nil {
-			return err
-		}
-	}
-
-	content, err := c.generateBundleYAML(existing, envs)
-	if err != nil {
-		return err
-	}
-	return writeBundleInstance(c.HostPath, content)
-}
-
-func (c *Change) generateBundleYAML(existing *yaml.BundleInstance, envs []*config.Environment) (string, error) {
-	inputs := yaml.Map[any]{}
-	for _, def := range c.InputDefs {
-		if isPseudoKey(def.Name) {
-			continue
-		}
-		v, found := c.UserValues[def.Name]
-		if !found || v == cty.NilVal {
-			continue
-		}
-
-		// Bundle-ref values are stored as resolved objects internally
-		// but must be written as alias strings in the YAML config.
-		if _, isBundleType := def.Type.(*typeschema.BundleType); isBundleType {
-			if v.IsKnown() && !v.IsNull() && v.Type().IsObjectType() && v.Type().HasAttribute("alias") {
-				v = v.GetAttr("alias")
-			}
-		}
-
-		yv, err := yaml.ConvertFromCty(v)
-		if err != nil {
-			return "", err
-		}
-		inputs = append(inputs, yaml.MapItem[any]{
-			Key:   yaml.Attr(def.Name, 0, 0, formatTmdoc(def.Description)),
-			Value: yaml.Attr(yv),
-		})
-	}
-
-	var envID string
-	if c.Env != nil {
-		envID = c.Env.ID
-	}
-
-	if c.UUID == "" {
-		c.UUID = uuid.NewString()
-	}
-
-	var bundle yaml.BundleInstance
-	if envID != "" {
-		envBlock := &yaml.BundleEnvironment{
-			Source: yaml.Attr[any](c.Source),
-			Inputs: yaml.Attr(inputs),
-		}
-		if existing != nil {
-			bundle = mergeBundleYAMLEnv(*existing, envID, envBlock, envs)
-		} else {
-			bundle = yaml.BundleInstance{
-				Name: yaml.Attr(c.Name),
-				UUID: yaml.Attr(c.UUID),
-				Environments: yaml.Attr(
-					yaml.Map[*yaml.BundleEnvironment]{
-						{Key: yaml.Attr(envID), Value: yaml.Attr(envBlock)},
-					},
-				),
-			}
-		}
-	} else {
-		bundle = yaml.BundleInstance{
-			Name:   yaml.Attr(c.Name),
-			UUID:   yaml.Attr(c.UUID),
-			Source: yaml.Attr[any](c.Source),
-			Inputs: yaml.Attr(inputs),
-		}
-	}
-
-	var b strings.Builder
-	err := yaml.Encode(&bundle, &b)
-	if err != nil {
-		return "", err
-	}
-	// Strip any trailling whitespace.
-	output := trailingWSRE.ReplaceAllString(b.String(), "")
-	return output, nil
-}
-
-func loadBundleYAMLConfig(p string) (*yaml.BundleInstance, error) {
-	if !hasYAMLConfigExt(p) {
-		return nil, errors.E("File %q is not a .tm.yml file.", p)
-	}
-
-	r, err := os.Open(p)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = r.Close()
-	}()
-
-	var bundle yaml.BundleInstance
-	err = yaml.Decode(r, &bundle)
-	if err != nil {
-		loc := hhcl.Range{
-			Filename: p,
-		}
-		var yamlErr yaml.Error
-		if errors.As(err, &yamlErr) {
-			loc.Start = hhcl.Pos{Line: yamlErr.Line, Column: yamlErr.Column}
-			loc.End = hhcl.Pos{Line: yamlErr.Line, Column: yamlErr.Column}
-		}
-
-		return nil, errors.E(err, loc)
-	}
-
-	return &bundle, nil
-}
-
-func hasYAMLConfigExt(fn string) bool {
-	return strings.HasSuffix(fn, ".tm.yml") || strings.HasSuffix(fn, ".tm.yaml")
-}
-
-func mergeBundleYAMLEnv(existing yaml.BundleInstance, envID string, env *yaml.BundleEnvironment, envs []*config.Environment) yaml.BundleInstance {
-	merged := existing
-
-	// If the same entry already is in spec of the existing bundle, then don't write it.
-	var filteredInputs yaml.Map[any]
-	for _, input := range env.Inputs.V {
-		if !slices.ContainsFunc(merged.Inputs.V, func(other yaml.MapItem[any]) bool {
-			return input.Key.V == other.Key.V &&
-				input.Key.HeadComment == other.Key.HeadComment &&
-				input.Key.LineComment == other.Key.LineComment &&
-				input.Key.FootComment == other.Key.FootComment &&
-				input.Value.HeadComment == other.Value.HeadComment &&
-				input.Value.LineComment == other.Value.LineComment &&
-				input.Value.FootComment == other.Value.FootComment &&
-				reflect.DeepEqual(input.Value.V, other.Value.V)
-		}) {
-			filteredInputs = append(filteredInputs, input)
-		}
-	}
-	env.Inputs.V = filteredInputs
-
-	newMapItem := yaml.MapItem[*yaml.BundleEnvironment]{Key: yaml.Attr(envID), Value: yaml.Attr(env)}
-
-	replaceIndex := slices.IndexFunc(merged.Environments.V, func(a yaml.MapItem[*yaml.BundleEnvironment]) bool {
-		return a.Key.V == envID
-	})
-	if replaceIndex != -1 {
-		merged.Environments.V[replaceIndex] = newMapItem
-	} else {
-		indexMap := make(map[string]int, len(envs))
-		for i, e := range envs {
-			indexMap[e.ID] = i
-		}
-		merged.Environments.V = append(merged.Environments.V, newMapItem)
-		slices.SortFunc(merged.Environments.V, func(a, b yaml.MapItem[*yaml.BundleEnvironment]) int {
-			return cmp.Compare(indexMap[a.Key.V], indexMap[b.Key.V])
-		})
-	}
-
-	return merged
-}
-
-var trailingWSRE = regexp.MustCompile(`(?m)[ \t]+$`)
-
-func formatTmdoc(in string) string {
-	lines := strings.Split(in, "\n")
-	// Remove empty last line.
-	if len(lines) > 1 && lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
-	}
-	for i, s := range lines {
-		lines[i] = "# tmdoc: " + s
-	}
-	return strings.Join(lines, "\n")
-}
-
-func writeBundleInstance(outpath string, content string) error {
-	if err := os.MkdirAll(filepath.Dir(outpath), 0755); err != nil {
-		return errors.E(err, "failed to create directory")
-	}
-
-	f, err := os.Create(outpath)
-	if err != nil {
-		return errors.E(err, "creating/truncating file")
-	}
-
-	defer func() {
-		errClose := f.Close()
-		if errClose != nil {
-			err = errors.L(err, errClose)
-		}
-	}()
-
-	_, err = f.WriteString(content)
-	return err
-}
-
-func fixupFileExtension(format, fn string) string {
-	switch format {
-	case "yaml":
-		if strings.HasSuffix(fn, ".hcl") {
-			return strings.TrimSuffix(fn, "hcl") + "yml"
-		}
-		if strings.HasSuffix(fn, ".tm") {
-			return fn + ".yml"
-		}
-	case "hcl":
-		if strings.HasSuffix(fn, ".yml") {
-			return strings.TrimSuffix(fn, "yml") + "hcl"
-		}
-		if strings.HasSuffix(fn, ".yaml") {
-			return strings.TrimSuffix(fn, "yaml") + "hcl"
-		}
-		if strings.HasSuffix(fn, ".tm") {
-			return fn + ".hcl"
-		}
-	}
-	return fn
 }

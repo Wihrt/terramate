@@ -19,7 +19,7 @@ import (
 // InlineListWidget manages a list of items that are edited inline.
 // This supports strings and numbers.
 type InlineListWidget struct {
-	wctx      *WidgetContext
+	baseWidget
 	valueType typeschema.Type
 	items     []cty.Value
 	cursor    int // -1 = text input at bottom; >= 0 = index in items; len(items) = "Confirm"
@@ -48,18 +48,13 @@ func NewInlineListWidget(wctx *WidgetContext, valueType typeschema.Type) *Inline
 	}
 
 	return &InlineListWidget{
-		wctx:       wctx,
+		baseWidget: baseWidget{wctx: wctx},
 		valueType:  valueType,
 		cursor:     -1,
 		editing:    -1,
 		textInput:  ti,
 		numberMode: numberMode,
 	}
-}
-
-// WidgetContext returns the widget's context.
-func (w *InlineListWidget) WidgetContext() *WidgetContext {
-	return w.wctx
 }
 
 // Prepare initializes the widget for a new editing session.
@@ -302,13 +297,10 @@ func (w *InlineListWidget) ForwardMsg(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
-// AcceptSubFormResult is a no-op; inline lists do not use sub-forms.
-func (w *InlineListWidget) AcceptSubFormResult(SubFormResult) bool { return true }
-
 // SubFormListWidget manages a list of complex items (objects, nested lists/maps,
 // etc.) where each item is edited via a nested sub-form.
 type SubFormListWidget struct {
-	wctx      *WidgetContext
+	baseWidget
 	valueType typeschema.Type
 	items     []cty.Value
 	cursor    int // 0..n-1 = items, n = "Add", n+1 = "Done"
@@ -320,15 +312,10 @@ type SubFormListWidget struct {
 // NewSubFormListWidget creates a widget for editing a list of complex items via nested sub-forms.
 func NewSubFormListWidget(wctx *WidgetContext, valueType typeschema.Type) InputWidget {
 	return &SubFormListWidget{
-		wctx:      wctx,
-		valueType: valueType,
-		editIdx:   -1,
+		baseWidget: baseWidget{wctx: wctx},
+		valueType:  valueType,
+		editIdx:    -1,
 	}
-}
-
-// WidgetContext returns the widget's context.
-func (w *SubFormListWidget) WidgetContext() *WidgetContext {
-	return w.wctx
 }
 
 // Prepare initializes the widget for a new editing session.
@@ -437,11 +424,6 @@ func (w *SubFormListWidget) FormatDisplay() string {
 		return FormatDisplayValue(elem, w.valueType)
 	}
 	return fmt.Sprintf("<%d items>", n)
-}
-
-// ForwardMsg is a no-op; sub-form lists do not embed a text input.
-func (w *SubFormListWidget) ForwardMsg(tea.Msg) tea.Cmd {
-	return nil
 }
 
 // AcceptSubFormResult integrates a completed sub-form result into the list.

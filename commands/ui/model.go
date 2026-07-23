@@ -5,8 +5,6 @@ package ui
 
 import (
 	"context"
-	"os"
-	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -16,11 +14,13 @@ import (
 	"github.com/zclconf/go-cty/cty"
 
 	"github.com/terramate-io/terramate/commands"
+	"github.com/terramate-io/terramate/commands/ui/change"
 	"github.com/terramate-io/terramate/config"
 	"github.com/terramate-io/terramate/errors"
 	"github.com/terramate-io/terramate/generate/resolve"
 	"github.com/terramate-io/terramate/hcl/eval"
 	"github.com/terramate-io/terramate/scaffold/manifest"
+	"github.com/terramate-io/terramate/typeschema"
 	"github.com/terramate-io/terramate/ui/tui/cliconfig"
 )
 
@@ -107,6 +107,82 @@ type EngineState struct {
 	AgentAddress    string
 }
 
+// changeSession projects the engine state onto the narrow dependency
+// set of the change package.
+func (est *EngineState) changeSession() change.Session {
+	return change.Session{
+		Context:    est.Context,
+		Registry:   est.Registry,
+		RootDir:    est.Root.HostDir(),
+		WorkingDir: est.WorkingDir,
+	}
+}
+
+// loadBundleEvalContext creates a bundle eval context and loads the schema namespaces for the given bundle.
+func (est *EngineState) loadBundleEvalContext(bde *config.BundleDefinitionEntry, env *config.Environment) (typeschema.EvalContext, error) {
+	evalctx := change.NewBundleEvalContext(est.Evalctx, est.Registry, env)
+	schemas, err := config.EvalBundleSchemaNamespaces(est.Root, est.ResolveAPI, evalctx, bde.Define, true)
+	if err != nil {
+		return typeschema.EvalContext{}, errors.E(err, "Failed to load bundle schema.")
+	}
+	return typeschema.EvalContext{
+		Evalctx: evalctx,
+		Schemas: schemas,
+	}, nil
+}
+
+// overviewState groups the Model fields owned by the overview view.
+type overviewState struct {
+	focus         FocusArea
+	commandIdx    int
+	commands      []string
+	summaryCursor int   // Selected row in the session bundles list
+	currentErr    error // Shown in the overview error area, cleared on next keypress
+}
+
+// createState groups the Model fields owned by the create flow
+// (flat bundle selection, environment selection, and the create wizard).
+type createState struct {
+	// Bundle selection state (flat list)
+	allFlatBundles       []flatBundleEntry // Unfiltered master list, rebuilt each time Scaffold is entered
+	flatBundles          []flatBundleEntry // Filtered view of allFlatBundles for the current filter query
+	flatBundleFilter     textFilter        // Free-text filter state for the flat bundle list
+	flatBundleCursor     int
+	selectedCollIdx      int // Set by selectFlatBundle, used by loadBundleDef
+	selectedBundleIdx    int // Set by selectFlatBundle, used by loadBundleDef
+	selectedBundleSource string
+	bundleSelectErr      string // Inline error shown in the bundle list view, cleared on cursor move
+	envCursor            int    // Cursor for ViewCreateEnvSelect
+
+	// Wizard exit confirmation
+	confirmingExit bool // true when showing wizard exit confirmation
+	exitConfirmIdx int  // 0 = Yes, 1 = No
+
+	// Bundle reference / nested creation state
+	stack          []CreateFrame // Stack of suspended wizard states
+	nestedRefClass string        // When non-empty, we're creating a bundle for this class
+}
+
+// reconfigState groups the Model fields owned by the reconfigure flow.
+type reconfigState struct {
+	bundles      []*config.Bundle // Filtered bundles for current filter, rebuilt on filter change
+	cursor       int              // Cursor in bundles
+	bundle       *config.Bundle   // The bundle currently being reconfigured
+	fromOverview bool             // true when reconfig was entered from session panel (skip ViewReconfigSelect on ESC)
+	envFilter    envFilterCycle   // Precomputed valid env filter states + cycle position
+	filter       textFilter       // Free-text filter state for the Reconfigure bundle list
+}
+
+// promoteState groups the Model fields owned by the promote flow.
+type promoteState struct {
+	bundles    []*config.Bundle      // Filtered bundles for current filter
+	targetEnvs []*config.Environment // Target env per bundle (parallel to bundles)
+	cursor     int                   // Cursor in bundles
+	bundle     *config.Bundle        // The bundle currently being promoted
+	envFilter  envFilterCycle        // Precomputed valid env filter states + cycle position
+	filter     textFilter            // Free-text filter state for the Promote bundle list
+}
+
 // Model is the main BubbleTea model for the prompt UI.
 type Model struct {
 	// Layout
@@ -119,61 +195,26 @@ type Model struct {
 	// View state
 	viewState ViewState
 
-	// Environment selection state
-	selectedEnv *config.Environment
+	// Per-view sub-states
+	overview overviewState
+	create   createState
+	reconfig reconfigState
+	promote  promoteState
 
-	// Overview state
-	focus      FocusArea
-	commandIdx int
-	commands   []string
-
-	summaryCursor        int                     // Selected row in the session bundles list
-	changeLog            []string                // cumulative log of all saved changes across the session (for CLI exit)
-	sessionChanges       map[string][]ChangeKind // bundle key → ordered list of change kinds applied this session
-	lastSavedKey         string                  // bundle key of the most recently saved change (cleared on next keypress)
-	confirmingCreateExit bool                    // true when showing wizard exit confirmation
-	createExitConfirmIdx int                     // 0 = Yes, 1 = No
-
-	// Bundle selection state (flat list)
-	allFlatBundles         []flatBundleEntry // Unfiltered master list, rebuilt each time Scaffold is entered
-	flatBundles            []flatBundleEntry // Filtered view of allFlatBundles for the current filter query
-	flatBundleFilter       flatFilterState   // Free-text filter state for the flat bundle list
-	flatBundleCursor       int
-	selectedCollIdx        int // Set by selectFlatBundle, used by loadBundleDef
-	selectedBundleIdx      int // Set by selectFlatBundle, used by loadBundleDef
+	// Shared selection/form state, written by the select views and read by
+	// the input views across the create/reconfig/promote flows.
+	selectedEnv            *config.Environment
 	selectedBundleDefEntry *config.BundleDefinitionEntry
-	selectedBundleSource   string
 	inputsForm             InputsForm
-	createEnvCursor        int // Cursor for ViewCreateEnvSelect
+	objectEditStack        []ObjectEditFrame // Stack for nested object input editing
 
-	// Bundle reference / nested creation state
-	createStack    []CreateFrame // Stack of suspended wizard states
-	nestedRefClass string        // When non-empty, we're creating a bundle for this class
-
-	// Object input nested editing state
-	objectEditStack []ObjectEditFrame // Stack for nested object input editing
-
-	// Reconfigure state
-	reconfigBundles      []*config.Bundle    // Filtered bundles for current filter, rebuilt on filter change
-	reconfigCursor       int                 // Cursor in reconfigBundles
-	reconfigBundle       *config.Bundle      // The bundle currently being reconfigured
-	reconfigFromOverview bool                // true when reconfig was entered from session panel (skip ViewReconfigSelect on ESC)
-	reconfigFilters      []envFilterState    // Precomputed valid filter states
-	reconfigFilterPos    int                 // Current position in reconfigFilters (-1 = all/no filter)
-	reconfigFilter       reconfigFilterState // Free-text filter state for the Reconfigure bundle list
-
-	// Promote state
-	promoteBundles    []*config.Bundle      // Filtered bundles for current filter
-	promoteTargetEnvs []*config.Environment // Target env per bundle (parallel to promoteBundles)
-	promoteCursor     int                   // Cursor in promoteBundles
-	promoteBundle     *config.Bundle        // The bundle currently being promoted
-	promoteFilters    []envFilterState      // Precomputed valid filter states
-	promoteFilterPos  int                   // Current position in promoteFilters (-1 = all/no filter)
-	promoteFilter     promoteFilterState    // Free-text filter state for the Promote bundle list
+	// Session history, appended on every save; read by the overview panel
+	// and by the CLI exit path (ui.go).
+	changeLog      []string                 // cumulative log of all saved changes across the session (for CLI exit)
+	sessionChanges map[string][]change.Kind // bundle key → ordered list of change kinds applied this session
+	lastSavedKey   string                   // bundle key of the most recently saved change (cleared on next keypress)
 
 	// Transient status
-	currentErr       error  // Shown in the overview error area, cleared on next keypress
-	bundleSelectErr  string // Inline error shown in the bundle list view, cleared on cursor move
 	ctrlCPending     bool   // true after first ctrl+c press, reset after 1s
 	errorDialogTitle string // Title for the error dialog (e.g. "Bundle is not enabled")
 	errorDialogText  string // When non-empty, shows a dismissible error dialog overlay
@@ -230,49 +271,16 @@ func NewModel(est *EngineState) Model {
 	return Model{
 		EngineState: est,
 		viewState:   ViewOverview,
-		commands: []string{
-			"Scaffold",
-			"Reconfigure",
-			"Promote",
-			"Quit",
+		overview: overviewState{
+			commands: []string{
+				"Scaffold",
+				"Reconfigure",
+				"Promote",
+				"Quit",
+			},
+			focus: FocusCommands,
 		},
-		focus: FocusCommands,
 	}
-}
-
-// inputsToValueMap converts a map[string]cty.Value to map[string]cty.Value,
-// unwrapping the {"value": v} object that EvalInputs wraps each input in.
-func inputsToValueMap(inputs map[string]cty.Value) map[string]cty.Value {
-	out := make(map[string]cty.Value, len(inputs))
-	for k, v := range inputs {
-		out[k] = v.GetAttr("value")
-	}
-	return out
-}
-
-// rawInputKeys returns the set of input names that were explicitly provided
-// in the bundle's YAML file (before default evaluation).
-func rawInputKeys(b *config.Bundle, evalctx *eval.Context) map[string]bool {
-	keys := make(map[string]bool)
-	if b.Inst == nil {
-		return keys
-	}
-	// Block-style: inputs { key = val }
-	if b.Inst.Inputs != nil {
-		for name := range b.Inst.Inputs.Attributes {
-			keys[name] = true
-		}
-	}
-	// Attribute-style: inputs = { key = val }
-	if b.Inst.InputsAttr != nil && evalctx != nil {
-		val, err := evalctx.Eval(b.Inst.InputsAttr.Expr)
-		if err == nil && val.Type().IsObjectType() {
-			for name := range val.AsValueMap() {
-				keys[name] = true
-			}
-		}
-	}
-	return keys
 }
 
 // ctrlCResetMsg is sent after the double-press window expires.
@@ -281,6 +289,25 @@ type ctrlCResetMsg struct{}
 // Init initializes the model.
 func (m Model) Init() tea.Cmd {
 	return textarea.Blink
+}
+
+// viewHandler pairs the update and render functions of one view state.
+type viewHandler struct {
+	update func(Model, tea.KeyMsg) (tea.Model, tea.Cmd)
+	render func(Model) string
+}
+
+// viewHandlers routes Update/View dispatch per view state. States absent
+// from the table (ViewOverview, or an out-of-range value) fall back to the
+// overview handlers, preserving the previous switch defaults.
+var viewHandlers = map[ViewState]viewHandler{
+	ViewCreateSelect:    {Model.updateCreateSelect, Model.renderBundleSelectView},
+	ViewCreateEnvSelect: {Model.updateCreateEnvSelect, Model.renderCreateEnvSelectView},
+	ViewCreateInput:     {Model.updateCreateInput, Model.renderCreateInputView},
+	ViewReconfigSelect:  {Model.updateReconfigSelect, Model.renderReconfigSelectView},
+	ViewReconfigInput:   {Model.updateReconfigInput, Model.renderReconfigInputView},
+	ViewPromoteSelect:   {Model.updatePromoteSelect, Model.renderPromoteSelectView},
+	ViewPromoteInput:    {Model.updatePromoteInput, Model.renderPromoteInputView},
 }
 
 // Update handles messages and updates the model.
@@ -319,24 +346,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		switch m.viewState {
-		case ViewCreateSelect:
-			return m.updateCreateSelect(msg)
-		case ViewCreateEnvSelect:
-			return m.updateCreateEnvSelect(msg)
-		case ViewCreateInput:
-			return m.updateCreateInput(msg)
-		case ViewReconfigSelect:
-			return m.updateReconfigSelect(msg)
-		case ViewReconfigInput:
-			return m.updateReconfigInput(msg)
-		case ViewPromoteSelect:
-			return m.updatePromoteSelect(msg)
-		case ViewPromoteInput:
-			return m.updatePromoteInput(msg)
-		default:
-			return m.updateOverview(msg)
+		if h, ok := viewHandlers[m.viewState]; ok {
+			return h.update(m, msg)
 		}
+		return m.updateOverview(msg)
 
 	default:
 		switch m.viewState {
@@ -353,22 +366,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // View renders the current view.
 func (m Model) View() string {
 	var base string
-	switch m.viewState {
-	case ViewCreateSelect:
-		base = m.renderBundleSelectView()
-	case ViewCreateEnvSelect:
-		base = m.renderCreateEnvSelectView()
-	case ViewCreateInput:
-		base = m.renderCreateInputView()
-	case ViewReconfigSelect:
-		base = m.renderReconfigSelectView()
-	case ViewReconfigInput:
-		base = m.renderReconfigInputView()
-	case ViewPromoteSelect:
-		base = m.renderPromoteSelectView()
-	case ViewPromoteInput:
-		base = m.renderPromoteInputView()
-	default:
+	if h, ok := viewHandlers[m.viewState]; ok {
+		base = h.render(m)
+	} else {
 		base = m.renderOverviewView()
 	}
 
@@ -487,13 +487,6 @@ func (m Model) finalHelpText(base string) string {
 	return base
 }
 
-func displayNameFromAlias(alias, name string) string {
-	if strings.HasSuffix(alias, ":"+name) {
-		return name
-	}
-	return alias
-}
-
 // MatchingBundleOptions returns bundles that match the given class ID and environment.
 func MatchingBundleOptions(r *config.Registry, classID string, env *config.Environment) []BundleOption {
 	var options []BundleOption
@@ -516,33 +509,4 @@ func MatchingBundleOptions(r *config.Registry, classID string, env *config.Envir
 		options = append(options, opt)
 	}
 	return options
-}
-
-// IsBundleUnique checks that no existing bundle conflicts with the given alias and class.
-func IsBundleUnique(r *config.Registry, alias, classID, hostPath string, env *config.Environment) error {
-	skipFileExistsCheck := false
-
-	for _, b := range r.Bundles {
-		bundleHostPath := b.Info.HostPath()
-		if classID == b.DefinitionMetadata.Class && alias == b.Alias {
-			if env != nil && b.Environment != nil {
-				if env.ID == b.Environment.ID {
-					return errors.E("A bundle with alias %q already exists for environment %s at %s", b.Alias, env.ID, bundleHostPath)
-				}
-				// Same alias+class, but different env. This is ok.
-				// We have to assume the file exists already in this case.
-				skipFileExistsCheck = true
-			} else {
-				return errors.E("A bundle with alias %q already exists at %s", b.Alias, bundleHostPath)
-			}
-		}
-	}
-	if hostPath != "" && !skipFileExistsCheck {
-		_, err := os.Stat(hostPath)
-		if err == nil {
-			return errors.E("A file already exists at the target output path %s", hostPath)
-		}
-	}
-
-	return nil
 }

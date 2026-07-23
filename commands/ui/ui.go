@@ -26,7 +26,7 @@ import (
 	"github.com/terramate-io/terramate/stdlib"
 )
 
-// Spec is the command specification for the prompt command.
+// Spec is the command specification for the ui command.
 type Spec struct {
 	workingDir string
 	engine     *engine.Engine
@@ -34,12 +34,12 @@ type Spec struct {
 }
 
 // Name returns the name of the command.
-func (s *Spec) Name() string { return "prompt" }
+func (s *Spec) Name() string { return "ui" }
 
 // Requirements returns the requirements of the command.
 func (s *Spec) Requirements(context.Context, commands.CLI) any { return commands.RequireEngine() }
 
-// Exec executes the prompt command.
+// Exec executes the ui command.
 func (s *Spec) Exec(ctx context.Context, cli commands.CLI) error {
 	s.workingDir = cli.WorkingDir()
 	s.engine = cli.Engine()

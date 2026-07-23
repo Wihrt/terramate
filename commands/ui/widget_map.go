@@ -28,7 +28,7 @@ type mapWidgetEntry struct {
 // InlineMapWidget manages a map of key-value pairs edited inline.
 // This supports string and number values.
 type InlineMapWidget struct {
-	wctx        *WidgetContext
+	baseWidget
 	valueType   typeschema.Type
 	items       []mapWidgetEntry
 	cursor      int  // 0..n-1 = items, n = "Add", n+1 = "Done"
@@ -60,17 +60,12 @@ func NewInlineMapWidget(wctx *WidgetContext, valueType typeschema.Type) *InlineM
 	}
 
 	return &InlineMapWidget{
-		wctx:       wctx,
+		baseWidget: baseWidget{wctx: wctx},
 		valueType:  valueType,
 		editIdx:    -1,
 		textInput:  ti,
 		numberMode: numberMode,
 	}
-}
-
-// WidgetContext returns the widget's context.
-func (w *InlineMapWidget) WidgetContext() *WidgetContext {
-	return w.wctx
 }
 
 // Prepare initializes the widget for a new editing session.
@@ -477,13 +472,10 @@ func (w *InlineMapWidget) ForwardMsg(msg tea.Msg) tea.Cmd {
 	return cmd
 }
 
-// AcceptSubFormResult is a no-op; inline map widgets do not use sub-forms.
-func (w *InlineMapWidget) AcceptSubFormResult(SubFormResult) bool { return true }
-
 // SubFormMapWidget manages a map with complex values (objects, nested lists/maps,
 // etc.) where each value is edited via a nested sub-form. Keys are entered inline.
 type SubFormMapWidget struct {
-	wctx       *WidgetContext
+	baseWidget
 	valueType  typeschema.Type
 	items      []subformMapEntry
 	cursor     int  // 0..n-1 = items, n = "Add", n+1 = "Done"
@@ -513,16 +505,11 @@ func NewSubFormMapWidget(wctx *WidgetContext, valueType typeschema.Type) InputWi
 	}
 
 	return &SubFormMapWidget{
-		wctx:      wctx,
-		valueType: valueType,
-		editIdx:   -1,
-		textInput: ti,
+		baseWidget: baseWidget{wctx: wctx},
+		valueType:  valueType,
+		editIdx:    -1,
+		textInput:  ti,
 	}
-}
-
-// WidgetContext returns the widget's context.
-func (w *SubFormMapWidget) WidgetContext() *WidgetContext {
-	return w.wctx
 }
 
 // Prepare initializes the widget for a new editing session.

@@ -5,24 +5,21 @@ package ui
 
 import (
 	"cmp"
-	"context"
 	"fmt"
 	"slices"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
-	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/terramate-io/terramate/commands/ui/change"
 	"github.com/terramate-io/terramate/config"
 	"github.com/terramate-io/terramate/errors"
 	"github.com/terramate-io/terramate/generate/resolve"
 	"github.com/terramate-io/terramate/hcl"
 	"github.com/terramate-io/terramate/hcl/eval"
 	"github.com/terramate-io/terramate/scaffold/manifest"
-	"github.com/terramate-io/terramate/stdlib"
 	"github.com/terramate-io/terramate/typeschema"
-	"github.com/zclconf/go-cty/cty"
 )
 
 // buildFlatBundles creates a flat list of all bundles from all collections,
@@ -53,21 +50,6 @@ func buildFlatBundles(est *EngineState) []flatBundleEntry {
 	return entries
 }
 
-// flatFilterState holds the free-text filter editing state for the flat
-// (Scaffold/Create) bundle list.
-type flatFilterState struct {
-	input   textinput.Model
-	editing bool
-}
-
-// newFlatFilterState creates a fresh, unfocused filter input.
-func newFlatFilterState() flatFilterState {
-	ti := textinput.New()
-	ti.Prompt = "/ "
-	ti.CharLimit = 128
-	return flatFilterState{input: ti}
-}
-
 // flatBundleMatchesFilter reports whether entry's bundle name contains query
 // (case-insensitive). An empty query matches everything.
 func flatBundleMatchesFilter(entry flatBundleEntry, query string) bool {
@@ -77,106 +59,68 @@ func flatBundleMatchesFilter(entry flatBundleEntry, query string) bool {
 	return strings.Contains(strings.ToLower(entry.bundle.Name), strings.ToLower(query))
 }
 
-// applyFlatBundleFilter recomputes m.flatBundles from m.allFlatBundles using
+// applyFlatBundleFilter recomputes m.create.flatBundles from m.create.allFlatBundles using
 // the current filter query, and resets the cursor.
 func (m *Model) applyFlatBundleFilter() {
-	query := strings.TrimSpace(m.flatBundleFilter.input.Value())
-	m.flatBundles = nil
-	for _, entry := range m.allFlatBundles {
+	query := m.create.flatBundleFilter.query()
+	m.create.flatBundles = nil
+	for _, entry := range m.create.allFlatBundles {
 		if flatBundleMatchesFilter(entry, query) {
-			m.flatBundles = append(m.flatBundles, entry)
+			m.create.flatBundles = append(m.create.flatBundles, entry)
 		}
 	}
-	m.flatBundleCursor = 0
-	m.bundleSelectErr = ""
+	m.create.flatBundleCursor = 0
+	m.create.bundleSelectErr = ""
+}
+
+// createSelectListViewCfg configures the shared list engine for the flat
+// Create-Select view: no env cycling, blank-line separated items, and an
+// inline error, set by selectFlatBundle and cleared on cursor movement
+// (see onCursorMove below).
+var createSelectListViewCfg = listViewConfig{
+	breadcrumb: func(_ *Model) string { return "Scaffold Bundle Instance" },
+	helpLine:   func(m *Model) string { return m.flatBundleFilterHelp() },
+	listHeader: func(m *Model, innerWidth int) string { return m.flatBundleListHeader(innerWidth) },
+	buildItems: func(m *Model, contentWidth int) (int, []renderedItem) {
+		items := buildFlatBundleItems(m.create.flatBundles, m.create.flatBundleCursor, contentWidth)
+		return m.create.flatBundleCursor, items
+	},
+	itemCount:    func(m *Model) int { return len(m.create.flatBundles) },
+	cursor:       func(m *Model) int { return m.create.flatBundleCursor },
+	setCursor:    func(m *Model, c int) { m.create.flatBundleCursor = c },
+	textFilter:   func(m *Model) *textFilter { return &m.create.flatBundleFilter },
+	applyFilter:  func(m *Model) { m.applyFlatBundleFilter() },
+	envFilter:    func(_ *Model) *envFilterCycle { return nil },
+	onCursorMove: func(m *Model) { m.create.bundleSelectErr = "" },
+	onEnter:      func(m *Model) (tea.Model, tea.Cmd) { return m.selectFlatBundle() },
+	exit:         func(m *Model) { m.viewState = ViewOverview },
+	sep:          1,
+	grouped:      false,
 }
 
 func (m Model) updateCreateSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.flatBundleFilter.editing {
-		switch {
-		case key.Matches(msg, keys.Escape):
-			m.flatBundleFilter.input.SetValue("")
-			m.flatBundleFilter.input.Blur()
-			m.flatBundleFilter.editing = false
-			m.applyFlatBundleFilter()
-			return m, nil
-		case key.Matches(msg, keys.Enter):
-			m.flatBundleFilter.input.Blur()
-			m.flatBundleFilter.editing = false
-			return m, nil
-		}
-		var cmd tea.Cmd
-		m.flatBundleFilter.input, cmd = m.flatBundleFilter.input.Update(msg)
-		m.applyFlatBundleFilter()
-		return m, cmd
-	}
-
-	switch {
-	case key.Matches(msg, keys.Escape):
-		if m.flatBundleFilter.input.Value() != "" {
-			m.flatBundleFilter.input.SetValue("")
-			m.applyFlatBundleFilter()
-			return m, nil
-		}
-		m.viewState = ViewOverview
-		return m, nil
-
-	case msg.String() == "/":
-		m.flatBundleFilter.editing = true
-		m.flatBundleFilter.input.Width = m.effectiveWidth() - 8
-		m.flatBundleFilter.input.Focus()
-		return m, textinput.Blink
-
-	case key.Matches(msg, keys.PgUp), key.Matches(msg, keys.PgDn):
-		down := key.Matches(msg, keys.PgDn)
-		innerWidth := m.effectiveWidth() - 4
-		contentWidth := innerWidth - 4 // scrollbarGutter, matches renderFlatBundleList
-		availableHeight := m.effectiveContentHeight() - lipgloss.Height(m.flatBundleListHeader(innerWidth))
-		items := buildFlatBundleItems(m.flatBundles, m.flatBundleCursor, contentWidth)
-		m.flatBundleCursor = flatBundlePageCursor(items, m.flatBundleCursor, availableHeight, 1, down)
-		m.bundleSelectErr = ""
-		return m, nil
-
-	case key.Matches(msg, keys.Up):
-		if m.flatBundleCursor > 0 {
-			m.flatBundleCursor--
-			m.bundleSelectErr = ""
-		}
-		return m, nil
-
-	case key.Matches(msg, keys.Down):
-		if m.flatBundleCursor < len(m.flatBundles)-1 {
-			m.flatBundleCursor++
-			m.bundleSelectErr = ""
-		}
-		return m, nil
-
-	case key.Matches(msg, keys.Enter):
-		return m.selectFlatBundle()
-	}
-
-	return m, nil
+	return m.updateSelectView(createSelectListViewCfg, msg)
 }
 
 func (m Model) selectFlatBundle() (tea.Model, tea.Cmd) {
-	if m.flatBundleCursor >= len(m.flatBundles) {
+	if m.create.flatBundleCursor >= len(m.create.flatBundles) {
 		return m, nil
 	}
-	entry := m.flatBundles[m.flatBundleCursor]
-	m.selectedCollIdx = entry.collIdx
-	m.selectedBundleIdx = entry.bundleIdx
+	entry := m.create.flatBundles[m.create.flatBundleCursor]
+	m.create.selectedCollIdx = entry.collIdx
+	m.create.selectedBundleIdx = entry.bundleIdx
 	m.selectedEnv = nil // reset so env picker shows for each bundle
 
 	if err := m.loadBundleDef(entry.collIdx, entry.bundleIdx); err != nil {
-		m.bundleSelectErr = err.Error()
+		m.create.bundleSelectErr = err.Error()
 		return m, nil
 	}
 
 	// If the bundle requires an environment and environments are configured,
 	// show the env picker before proceeding to inputs.
-	if bundleRequiresEnv(m.EngineState.Evalctx, m.selectedBundleDefEntry.Define) &&
+	if change.BundleRequiresEnv(m.EngineState.Evalctx, m.selectedBundleDefEntry.Define) &&
 		len(m.EngineState.Registry.Environments) > 0 {
-		m.createEnvCursor = 0
+		m.create.envCursor = 0
 		m.viewState = ViewCreateEnvSelect
 		return m, nil
 	}
@@ -235,15 +179,15 @@ func (m *Model) loadBundleDef(collIdx, bundleIdx int) error {
 	// defer checkBundleEnabled and schema evaluation to finalizeBundleWithEnv
 	// which runs after the user picks an environment.
 	// Skip deferral for nested creates — they inherit the parent's env.
-	if bundleRequiresEnv(est.Evalctx, bde.Define) && m.selectedEnv == nil && len(est.Registry.Environments) > 0 && len(m.createStack) == 0 {
-		m.selectedCollIdx = collIdx
-		m.selectedBundleIdx = bundleIdx
+	if change.BundleRequiresEnv(est.Evalctx, bde.Define) && m.selectedEnv == nil && len(est.Registry.Environments) > 0 && len(m.create.stack) == 0 {
+		m.create.selectedCollIdx = collIdx
+		m.create.selectedBundleIdx = bundleIdx
 		m.selectedBundleDefEntry = bde
-		m.selectedBundleSource = source
+		m.create.selectedBundleSource = source
 		return nil
 	}
 
-	bundleEvalctx := newBundleEvalContext(est.Evalctx, est.Registry, m.selectedEnv)
+	bundleEvalctx := change.NewBundleEvalContext(est.Evalctx, est.Registry, m.selectedEnv)
 
 	if err := checkBundleEnabled(bundleEvalctx, bde.Define); err != nil {
 		return err
@@ -266,7 +210,7 @@ func (m *Model) loadBundleDef(collIdx, bundleIdx int) error {
 
 	if bde.Define.Scaffolding.Name == nil {
 		inputDefs = append(inputDefs, pseudoStringInput(
-			pseudoKeyOutputName, "Instance name",
+			change.PseudoKeyOutputName, "Instance name",
 			"Name of the created bundle instance.",
 		))
 	}
@@ -276,10 +220,10 @@ func (m *Model) loadBundleDef(collIdx, bundleIdx int) error {
 		))
 	}
 
-	m.selectedCollIdx = collIdx
-	m.selectedBundleIdx = bundleIdx
+	m.create.selectedCollIdx = collIdx
+	m.create.selectedBundleIdx = bundleIdx
 	m.selectedBundleDefEntry = bde
-	m.selectedBundleSource = source
+	m.create.selectedBundleSource = source
 	m.inputsForm = NewInputsForm(inputDefs, schemactx, est.Registry, m.selectedEnv)
 	m.inputsForm.confirmLabel = "Save"
 	m.inputsForm.PanelWidth = m.effectiveWidth()
@@ -293,7 +237,7 @@ func (m *Model) finalizeBundleWithEnv() error {
 	est := m.EngineState
 	bde := m.selectedBundleDefEntry
 
-	bundleEvalctx := newBundleEvalContext(est.Evalctx, est.Registry, m.selectedEnv)
+	bundleEvalctx := change.NewBundleEvalContext(est.Evalctx, est.Registry, m.selectedEnv)
 
 	if err := checkBundleEnabled(bundleEvalctx, bde.Define); err != nil {
 		return err
@@ -316,7 +260,7 @@ func (m *Model) finalizeBundleWithEnv() error {
 
 	if bde.Define.Scaffolding.Name == nil {
 		inputDefs = append(inputDefs, pseudoStringInput(
-			pseudoKeyOutputName, "Instance name",
+			change.PseudoKeyOutputName, "Instance name",
 			"Name of the created bundle instance.",
 		))
 	}
@@ -341,39 +285,11 @@ func bundleSourceFromManifest(coll *manifest.Collection, bundle *manifest.Bundle
 	return fmt.Sprintf("%s//%s", addr, bundle.Path)
 }
 
-func bundleRequiresEnv(evalctx *eval.Context, def *hcl.DefineBundle) bool {
-	if def.Environments.Required == nil {
-		return false
-	}
-	envRequired, err := config.EvalBool(evalctx, def.Environments.Required.Expr, "environments.required")
-	if err != nil {
-		return false
-	}
-	return envRequired
-}
-
 func checkEnvRequired(evalctx *eval.Context, def *hcl.DefineBundle, envs []*config.Environment) error {
-	if bundleRequiresEnv(evalctx, def) && len(envs) == 0 {
+	if change.BundleRequiresEnv(evalctx, def) && len(envs) == 0 {
 		return errors.E("This bundle requires environments, but none are configured.")
 	}
 	return nil
-}
-
-func newBundleEvalContext(evalctx *eval.Context, reg *config.Registry, env *config.Environment) *eval.Context {
-	evalctx = evalctx.ChildContext()
-
-	var bundleVals map[string]cty.Value
-	if bundleNS, ok := evalctx.GetNamespace("bundle"); ok {
-		bundleVals = bundleNS.AsValueMap()
-	} else {
-		bundleVals = map[string]cty.Value{}
-	}
-	bundleVals["environment"] = config.MakeEnvObject(env)
-	evalctx.SetNamespace("bundle", bundleVals)
-
-	evalctx.SetFunction(stdlib.Name("bundle"), config.BundleFunc(context.TODO(), reg, env, false))
-	evalctx.SetFunction(stdlib.Name("bundles"), config.BundlesFunc(reg, env))
-	return evalctx
 }
 
 func checkBundleEnabled(evalctx *eval.Context, def *hcl.DefineBundle) error {
@@ -404,19 +320,19 @@ func (m Model) updateCreateEnvSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, keys.Up):
-		if m.createEnvCursor > 0 {
-			m.createEnvCursor--
+		if m.create.envCursor > 0 {
+			m.create.envCursor--
 		}
 		return m, nil
 
 	case key.Matches(msg, keys.Down):
-		if m.createEnvCursor < len(est.Registry.Environments)-1 {
-			m.createEnvCursor++
+		if m.create.envCursor < len(est.Registry.Environments)-1 {
+			m.create.envCursor++
 		}
 		return m, nil
 
 	case key.Matches(msg, keys.Enter):
-		m.selectedEnv = est.Registry.Environments[m.createEnvCursor]
+		m.selectedEnv = est.Registry.Environments[m.create.envCursor]
 		if err := m.finalizeBundleWithEnv(); err != nil {
 			m.selectedEnv = nil // rollback so env picker shows again
 			return m.updateError(err)
@@ -445,15 +361,15 @@ func (m Model) renderCreateEnvSelectView() string {
 	innerWidth := panelWidth - 4
 
 	bundleName := ""
-	if m.flatBundleCursor < len(m.flatBundles) {
-		bundleName = m.flatBundles[m.flatBundleCursor].bundle.Name
+	if m.create.flatBundleCursor < len(m.create.flatBundles) {
+		bundleName = m.create.flatBundles[m.create.flatBundleCursor].bundle.Name
 	}
 	header := m.renderHeader(fmt.Sprintf("Scaffold %s", bundleName))
 
 	// Bundle detail box — full details plus currently highlighted environment
 	var detailBox string
-	if m.flatBundleCursor < len(m.flatBundles) {
-		entry := m.flatBundles[m.flatBundleCursor]
+	if m.create.flatBundleCursor < len(m.create.flatBundles) {
+		entry := m.create.flatBundles[m.create.flatBundleCursor]
 		fields := []detailField{
 			{label: "Bundle", value: entry.bundle.Name + " v" + entry.bundle.Version, truncEnd: true},
 		}
@@ -461,8 +377,8 @@ func (m Model) renderCreateEnvSelectView() string {
 			fields = append(fields, detailField{label: "Class", value: entry.bundle.Class, truncEnd: true})
 		}
 		// Show currently highlighted environment
-		if m.createEnvCursor < len(est.Registry.Environments) {
-			fields = append(fields, detailField{label: "Environment", value: est.Registry.Environments[m.createEnvCursor].Name, truncEnd: true})
+		if m.create.envCursor < len(est.Registry.Environments) {
+			fields = append(fields, detailField{label: "Environment", value: est.Registry.Environments[m.create.envCursor].Name, truncEnd: true})
 		}
 		fields = append(fields, detailField{}) // separator
 		coll := est.Collections[entry.collIdx]
@@ -499,7 +415,7 @@ func (m Model) renderCreateEnvSelectView() string {
 	var items []string
 	for i, env := range est.Registry.Environments {
 		idTag := idStyle.Render("[" + env.ID + "]")
-		if i == m.createEnvCursor {
+		if i == m.create.envCursor {
 			items = append(items, selectedStyle.Render("› "+env.Name)+" "+idTag)
 		} else {
 			items = append(items, itemStyle.Render("  "+env.Name)+" "+idTag)
@@ -520,188 +436,20 @@ func (m Model) renderCreateEnvSelectView() string {
 // --- Flat bundle list rendering ---
 
 func (m Model) renderBundleSelectView() string {
-	panelWidth := m.effectiveWidth()
-	innerWidth := panelWidth - 4
-
-	borderStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(colorBorderFocus).
-		Padding(1, 2).
-		Width(panelWidth).
-		Height(m.effectiveContentHeight() + 2)
-
-	helpStyle := lipgloss.NewStyle().
-		Foreground(colorTextMuted).
-		Width(panelWidth)
-
-	contentStyle := lipgloss.NewStyle().
-		Width(innerWidth)
-
-	title := m.renderHeader("Scaffold Bundle Instance")
-
-	help := helpStyle.Render(m.finalHelpText(m.flatBundleFilterHelp()))
-
-	content := m.renderFlatBundleList(innerWidth)
-
-	section := borderStyle.Render(contentStyle.Render(content))
-
-	all := lipgloss.JoinVertical(
-		lipgloss.Left,
-		title,
-		section,
-		help,
-	)
-
-	return lipgloss.NewStyle().Padding(1, 2).Render(all)
+	return m.renderSelectView(createSelectListViewCfg)
 }
 
 // flatBundleFilterHelp returns the help-line hint reflecting the current
 // filter state of the flat bundle list.
 func (m Model) flatBundleFilterHelp() string {
 	switch {
-	case m.flatBundleFilter.editing:
+	case m.create.flatBundleFilter.editing:
 		return "esc: clear • enter: apply"
-	case m.flatBundleFilter.input.Value() != "":
+	case m.create.flatBundleFilter.input.Value() != "":
 		return "/: edit filter • esc: clear filter"
 	default:
 		return "/: filter • esc: back"
 	}
-}
-
-// detailField represents a labeled field in the detail box.
-type detailField struct {
-	label    string
-	value    string
-	truncEnd bool // true: truncate end ("long..."), false: truncate start ("...long")
-}
-
-// renderDetailBox renders a sticky detail box with a titled border and labeled fields.
-// The boxTitle appears on the top border line. The first field is the main title (bold).
-func renderDetailBox(innerWidth int, boxTitle string, fields []detailField) string {
-	borderColor := lipgloss.NewStyle().Foreground(colorBorder)
-	titleColor := lipgloss.NewStyle().Foreground(colorTextMuted)
-	nameStyle := lipgloss.NewStyle().Bold(true).Foreground(colorText)
-	labelStyle := lipgloss.NewStyle().Foreground(colorTextSubtle)
-	valueStyle := lipgloss.NewStyle().Foreground(colorTextMuted)
-	versionStyle := lipgloss.NewStyle().Foreground(colorTextSubtle)
-
-	// Content width inside the box (border 1 + padding 1 on each side)
-	contentWidth := innerWidth - 4
-	if contentWidth < 20 {
-		contentWidth = 20
-	}
-
-	// Build the top border with title: ╭─ Title ───────────╮
-	titleText := titleColor.Render(" " + boxTitle + " ")
-	titleVisualWidth := lipgloss.Width(titleText)
-	fillWidth := innerWidth - 2 - 1 - titleVisualWidth // 2 for corners, 1 for dash before title
-	if fillWidth < 0 {
-		fillWidth = 0
-	}
-	topBorder := borderColor.Render("╭─") + titleText + borderColor.Render(strings.Repeat("─", fillWidth)+"╮")
-
-	// Find max label width for alignment
-	maxLabelWidth := 0
-	for _, f := range fields {
-		if f.label != "" && lipgloss.Width(f.label)+2 > maxLabelWidth {
-			maxLabelWidth = lipgloss.Width(f.label) + 2 // +2 for ": "
-		}
-	}
-
-	// Build content lines
-	var contentLines []string
-	for _, f := range fields {
-		// Separator line
-		if f.label == "" && f.value == "" {
-			sepLine := borderColor.Render("├" + strings.Repeat("─", innerWidth-2) + "┤")
-			contentLines = append(contentLines, sepLine)
-			continue
-		}
-		var line string
-		if f.label != "" {
-			paddedLabel := f.label + ": " + strings.Repeat(" ", maxLabelWidth-lipgloss.Width(f.label)-2)
-			label := labelStyle.Render(paddedLabel)
-			labelWidth := lipgloss.Width(label)
-			availWidth := contentWidth - labelWidth
-			if availWidth < 10 {
-				availWidth = 10
-			}
-			// Split name+version for the Bundle field
-			name, version := splitNameVersion(f.value)
-			if version != "" {
-				val := truncateEnd(name, availWidth-lipgloss.Width(version)-1)
-				line = label + nameStyle.Render(val) + " " + versionStyle.Render(version)
-			} else {
-				var val string
-				if f.truncEnd {
-					val = truncateEnd(f.value, availWidth)
-				} else {
-					val = truncateStart(f.value, availWidth)
-				}
-				line = label + valueStyle.Render(val)
-			}
-		} else {
-			name, version := splitNameVersion(f.value)
-			line = nameStyle.Render(truncateEnd(name, contentWidth-lipgloss.Width(version)-1))
-			if version != "" {
-				line += " " + versionStyle.Render(version)
-			}
-		}
-		// Pad each line to full width and wrap with border chars
-		lineWidth := lipgloss.Width(line)
-		pad := contentWidth - lineWidth
-		if pad < 0 {
-			pad = 0
-		}
-		contentLines = append(contentLines, borderColor.Render("│")+" "+line+strings.Repeat(" ", pad)+" "+borderColor.Render("│"))
-	}
-
-	// Bottom border
-	bottomBorder := borderColor.Render("╰" + strings.Repeat("─", innerWidth-2) + "╯")
-
-	all := []string{topBorder}
-	all = append(all, contentLines...)
-	all = append(all, bottomBorder)
-	return strings.Join(all, "\n")
-}
-
-// renderErrorBox renders an error message in a red-bordered box matching the
-// dimensions of the detail box.
-func renderErrorBox(innerWidth int, msg string) string {
-	borderColor := lipgloss.NewStyle().Foreground(colorError)
-	textStyle := lipgloss.NewStyle().Foreground(colorError)
-
-	contentWidth := innerWidth - 4 // border 1 + padding 1 on each side
-	if contentWidth < 20 {
-		contentWidth = 20
-	}
-
-	titleText := borderColor.Render(" Error ")
-	titleVisualWidth := lipgloss.Width(titleText)
-	fillWidth := innerWidth - 2 - 1 - titleVisualWidth
-	if fillWidth < 0 {
-		fillWidth = 0
-	}
-	topBorder := borderColor.Render("╭─") + titleText + borderColor.Render(strings.Repeat("─", fillWidth)+"╮")
-
-	// Word-wrap the message to fit inside the box.
-	wrapped := lipgloss.NewStyle().Width(contentWidth).Render(msg)
-	var contentLines []string
-	for _, line := range strings.Split(wrapped, "\n") {
-		lineWidth := lipgloss.Width(line)
-		pad := contentWidth - lineWidth
-		if pad < 0 {
-			pad = 0
-		}
-		contentLines = append(contentLines, borderColor.Render("│")+" "+textStyle.Render(line)+strings.Repeat(" ", pad)+" "+borderColor.Render("│"))
-	}
-
-	bottomBorder := borderColor.Render("╰" + strings.Repeat("─", innerWidth-2) + "╯")
-
-	all := []string{topBorder}
-	all = append(all, contentLines...)
-	all = append(all, bottomBorder)
-	return strings.Join(all, "\n")
 }
 
 // splitNameVersion splits "Some Name vX.Y.Z" into ("Some Name", "vX.Y.Z").
@@ -715,68 +463,14 @@ func splitNameVersion(s string) (string, string) {
 	return s, ""
 }
 
-// truncateEnd truncates a string at the end: "very long string" → "very long st..."
-func truncateEnd(s string, maxWidth int) string {
-	if maxWidth <= 3 {
-		return s
-	}
-	runes := []rune(s)
-	if len(runes) <= maxWidth {
-		return s
-	}
-	return string(runes[:maxWidth-3]) + "..."
-}
-
-// truncateStart truncates a string at the start: "/very/long/path/file" → ".../long/path/file"
-func truncateStart(s string, maxWidth int) string {
-	if maxWidth <= 3 {
-		return s
-	}
-	runes := []rune(s)
-	if len(runes) <= maxWidth {
-		return s
-	}
-	return "..." + string(runes[len(runes)-maxWidth+3:])
-}
-
-func (m Model) renderFlatBundleList(innerWidth int) string {
-	scrollbarGutter := 4
-	contentWidth := innerWidth - scrollbarGutter
-
-	header := m.flatBundleListHeader(innerWidth)
-	headerHeight := lipgloss.Height(header)
-	availableHeight := m.effectiveContentHeight() - headerHeight
-
-	items := buildFlatBundleItems(m.flatBundles, m.flatBundleCursor, contentWidth)
-
-	start, end := scrollWindowVar(m.flatBundleCursor, items, availableHeight, 1)
-
-	var sb strings.Builder
-	for i := start; i < end; i++ {
-		if i > start {
-			sb.WriteString("\n\n")
-		}
-		sb.WriteString(items[i].content)
-	}
-	listContent := sb.String()
-
-	if len(m.flatBundles) > end-start {
-		trackHeight := lipgloss.Height(listContent)
-		scrollbar := renderScrollbar(len(m.flatBundles), end-start, start, trackHeight)
-		listContent = lipgloss.JoinHorizontal(lipgloss.Top, listContent, " ", scrollbar, "  ")
-	}
-
-	return lipgloss.JoinVertical(lipgloss.Left, header, listContent)
-}
-
 // flatBundleListHeader renders the detail box (and any inline error) shown
 // above the flat bundle list. Used both for display and, via lipgloss.Height,
 // to compute the available height for PgUp/PgDn page-jump math.
 func (m Model) flatBundleListHeader(innerWidth int) string {
 	var detailBox string
-	if m.flatBundleCursor < len(m.flatBundles) {
+	if m.create.flatBundleCursor < len(m.create.flatBundles) {
 		est := m.EngineState
-		entry := m.flatBundles[m.flatBundleCursor]
+		entry := m.create.flatBundles[m.create.flatBundleCursor]
 		fields := []detailField{
 			{label: "Bundle", value: entry.bundle.Name + " v" + entry.bundle.Version, truncEnd: true},
 		}
@@ -799,13 +493,13 @@ func (m Model) flatBundleListHeader(innerWidth int) string {
 	}
 
 	var headerParts []string
-	if m.flatBundleFilter.editing || m.flatBundleFilter.input.Value() != "" {
+	if m.create.flatBundleFilter.editing || m.create.flatBundleFilter.input.Value() != "" {
 		filterStyle := lipgloss.NewStyle().Foreground(colorTextMuted)
-		headerParts = append(headerParts, filterStyle.Render(m.flatBundleFilter.input.View()), "")
+		headerParts = append(headerParts, filterStyle.Render(m.create.flatBundleFilter.input.View()), "")
 	}
 	headerParts = append(headerParts, detailBox)
-	if m.bundleSelectErr != "" {
-		headerParts = append(headerParts, renderErrorBox(innerWidth, m.bundleSelectErr))
+	if m.create.bundleSelectErr != "" {
+		headerParts = append(headerParts, renderErrorBox(innerWidth, m.create.bundleSelectErr))
 	}
 	headerParts = append(headerParts, "")
 	return lipgloss.JoinVertical(lipgloss.Left, headerParts...)
@@ -851,128 +545,4 @@ func buildFlatBundleItems(entries []flatBundleEntry, cursor, contentWidth int) [
 		items = append(items, renderedItem{content: block, height: lipgloss.Height(block), selectable: true})
 	}
 	return items
-}
-
-// flatBundlePageCursor returns the new cursor position for a PgUp/PgDn jump
-// over the flat bundle list. down selects PgDn (next page) vs PgUp (previous page).
-func flatBundlePageCursor(items []renderedItem, cursor, availableHeight, sep int, down bool) int {
-	if len(items) == 0 {
-		return 0
-	}
-	start, end := scrollWindowVar(cursor, items, availableHeight, sep)
-	if down {
-		for i := end; i < len(items); i++ {
-			if items[i].selectable {
-				return i
-			}
-		}
-		return lastSelectableIndex(items)
-	}
-	for i := start - 1; i >= 0; i-- {
-		if items[i].selectable {
-			return i
-		}
-	}
-	return firstSelectableIndex(items)
-}
-
-type renderedItem struct {
-	content    string
-	height     int
-	selectable bool // false for non-selectable rows such as group headers/separators
-}
-
-// firstSelectableIndex returns the index of the first selectable item, or 0 if none.
-func firstSelectableIndex(items []renderedItem) int {
-	for i, it := range items {
-		if it.selectable {
-			return i
-		}
-	}
-	return 0
-}
-
-// lastSelectableIndex returns the index of the last selectable item, or 0 if none.
-func lastSelectableIndex(items []renderedItem) int {
-	for i := len(items) - 1; i >= 0; i-- {
-		if items[i].selectable {
-			return i
-		}
-	}
-	return 0
-}
-
-// scrollWindowVar computes a visible window of variable-height items that fits
-// within availableHeight, keeping the selected item visible.
-// sep is the number of visual lines between items (1 for "\n\n", 0 for "\n").
-func scrollWindowVar(selectedIdx int, items []renderedItem, availableHeight, sep int) (start, end int) {
-	total := len(items)
-	if total == 0 {
-		return 0, 0
-	}
-	totalH := 0
-	for i, it := range items {
-		totalH += it.height
-		if i > 0 {
-			totalH += sep
-		}
-	}
-	if totalH <= availableHeight {
-		return 0, total
-	}
-
-	// Start from selected, expand downward then upward.
-	start = selectedIdx
-	end = selectedIdx + 1
-	usedH := items[selectedIdx].height
-
-	for {
-		expanded := false
-		if end < total && usedH+sep+items[end].height <= availableHeight {
-			usedH += sep + items[end].height
-			end++
-			expanded = true
-		}
-		if start > 0 && usedH+sep+items[start-1].height <= availableHeight {
-			start--
-			usedH += sep + items[start].height
-			expanded = true
-		}
-		if !expanded {
-			break
-		}
-	}
-	return
-}
-
-func renderScrollbar(totalItems, visibleCount, offset, trackHeight int) string {
-	if totalItems <= visibleCount || trackHeight <= 0 {
-		return ""
-	}
-
-	thumbSize := max(1, trackHeight*visibleCount/totalItems)
-	maxOff := totalItems - visibleCount
-	thumbPos := 0
-	if maxOff > 0 {
-		thumbPos = (trackHeight - thumbSize) * offset / maxOff
-	}
-	if thumbPos+thumbSize > trackHeight {
-		thumbPos = trackHeight - thumbSize
-	}
-
-	trackStyle := lipgloss.NewStyle().Foreground(colorScrollTrack)
-	thumbStyle := lipgloss.NewStyle().Foreground(colorScrollThumb)
-
-	var sb strings.Builder
-	for i := range trackHeight {
-		if i > 0 {
-			sb.WriteByte('\n')
-		}
-		if i >= thumbPos && i < thumbPos+thumbSize {
-			sb.WriteString(thumbStyle.Render("┃"))
-		} else {
-			sb.WriteString(trackStyle.Render("│"))
-		}
-	}
-	return sb.String()
 }
