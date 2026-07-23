@@ -10,7 +10,7 @@ import (
 )
 
 // TestBuildAllPromoteBundlesCombinesEnvAndTextFilter proves that the target-env
-// filter (the "e" key cycle, exposed via m.promoteEnvFilter)
+// filter (the "e" key cycle, exposed via m.promote.envFilter)
 // and the free-text filter genuinely combine via AND in buildAllPromoteBundles.
 //
 // Two target envs (prod and qa) both promote from staging, and neither has any
@@ -36,10 +36,12 @@ func TestBuildAllPromoteBundlesCombinesEnvAndTextFilter(t *testing.T) {
 			Bundles:      bundles,
 			Environments: []*config.Environment{staging, prod, qa},
 		}},
-		promoteEnvFilter: envFilterCycle{filters: []envFilterState{{env: prod, label: "Production", shortID: "prod"}}, pos: 0},
-		promoteFilter:    newTextFilter(),
+		promote: promoteState{
+			envFilter: envFilterCycle{filters: []envFilterState{{env: prod, label: "Production", shortID: "prod"}}, pos: 0},
+			filter:    newTextFilter(),
+		},
 	}
-	m.promoteFilter.input.SetValue("vpc")
+	m.promote.filter.input.SetValue("vpc")
 
 	got, targetEnvs := m.buildAllPromoteBundles()
 	if len(got) != 1 || got[0].Alias != "vpc-1" {

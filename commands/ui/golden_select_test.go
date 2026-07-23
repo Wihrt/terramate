@@ -79,27 +79,29 @@ func TestGoldenReconfigSelectView(t *testing.T) {
 	staging, prod := goldenEnvs()
 	bundles := goldenBundles(root.HostDir(), staging, prod)
 	m := Model{
-		EngineState:       &EngineState{Root: root, Registry: &config.Registry{Bundles: bundles, Environments: []*config.Environment{staging, prod}}},
-		width:             100,
-		height:            32,
-		viewState:         ViewReconfigSelect,
-		reconfigEnvFilter: envFilterCycle{filters: []envFilterState{{env: staging, label: "Staging", shortID: "staging"}}, pos: -1},
-		reconfigFilter:    newTextFilter(),
+		EngineState: &EngineState{Root: root, Registry: &config.Registry{Bundles: bundles, Environments: []*config.Environment{staging, prod}}},
+		width:       100,
+		height:      32,
+		viewState:   ViewReconfigSelect,
+		reconfig: reconfigState{
+			envFilter: envFilterCycle{filters: []envFilterState{{env: staging, label: "Staging", shortID: "staging"}}, pos: -1},
+			filter:    newTextFilter(),
+		},
 	}
-	m.reconfigBundles = m.buildReconfigBundles()
+	m.reconfig.bundles = m.buildReconfigBundles()
 
 	assertGolden(t, "reconfig-select-basic", m.View())
 
 	// Env filter active
-	m.reconfigEnvFilter.pos = 0
-	m.reconfigBundles = m.buildReconfigBundles()
+	m.reconfig.envFilter.pos = 0
+	m.reconfig.bundles = m.buildReconfigBundles()
 	assertGolden(t, "reconfig-select-envfilter", m.View())
 
 	// Text filter narrowing + cursor on second row
-	m.reconfigEnvFilter.pos = -1
-	m.reconfigFilter.input.SetValue("vpc")
-	m.reconfigBundles = m.buildReconfigBundles()
-	m.reconfigCursor = 1
+	m.reconfig.envFilter.pos = -1
+	m.reconfig.filter.input.SetValue("vpc")
+	m.reconfig.bundles = m.buildReconfigBundles()
+	m.reconfig.cursor = 1
 	assertGolden(t, "reconfig-select-textfilter", m.View())
 }
 
@@ -110,20 +112,22 @@ func TestGoldenPromoteSelectView(t *testing.T) {
 	staging, prod := goldenEnvs()
 	bundles := goldenBundles(root.HostDir(), staging, prod)
 	m := Model{
-		EngineState:      &EngineState{Root: root, Registry: &config.Registry{Bundles: bundles, Environments: []*config.Environment{staging, prod}}},
-		width:            100,
-		height:           32,
-		viewState:        ViewPromoteSelect,
-		promoteEnvFilter: envFilterCycle{filters: []envFilterState{{env: prod, label: "Production", shortID: "prod"}}, pos: -1},
-		promoteFilter:    newTextFilter(),
+		EngineState: &EngineState{Root: root, Registry: &config.Registry{Bundles: bundles, Environments: []*config.Environment{staging, prod}}},
+		width:       100,
+		height:      32,
+		viewState:   ViewPromoteSelect,
+		promote: promoteState{
+			envFilter: envFilterCycle{filters: []envFilterState{{env: prod, label: "Production", shortID: "prod"}}, pos: -1},
+			filter:    newTextFilter(),
+		},
 	}
-	m.promoteBundles, m.promoteTargetEnvs = m.buildAllPromoteBundles()
+	m.promote.bundles, m.promote.targetEnvs = m.buildAllPromoteBundles()
 
 	assertGolden(t, "promote-select-basic", m.View())
 
 	// Cursor on the last promotable bundle
-	if len(m.promoteBundles) > 1 {
-		m.promoteCursor = len(m.promoteBundles) - 1
+	if len(m.promote.bundles) > 1 {
+		m.promote.cursor = len(m.promote.bundles) - 1
 	}
 	assertGolden(t, "promote-select-cursor-last", m.View())
 }
@@ -138,26 +142,25 @@ func TestGoldenCreateSelectView(t *testing.T) {
 		{collIdx: 0, bundleIdx: 1, collName: "Core Bundles", bundle: &manifest.Bundle{Path: "ecs", Name: "ecs", Class: "compute", Version: "2.1.0"}},
 	}
 	m := Model{
-		EngineState:      &EngineState{Registry: &config.Registry{}, Collections: []*manifest.Collection{coll}},
-		width:            100,
-		height:           32,
-		viewState:        ViewCreateSelect,
-		allFlatBundles:   entries,
-		flatBundleFilter: newTextFilter(),
+		EngineState: &EngineState{Registry: &config.Registry{}, Collections: []*manifest.Collection{coll}},
+		width:       100,
+		height:      32,
+		viewState:   ViewCreateSelect,
+		create:      createState{allFlatBundles: entries, flatBundleFilter: newTextFilter()},
 	}
 	m.applyFlatBundleFilter()
 
 	assertGolden(t, "create-select-basic", m.View())
 
 	// Text filter narrowing
-	m.flatBundleFilter.input.SetValue("vpc")
+	m.create.flatBundleFilter.input.SetValue("vpc")
 	m.applyFlatBundleFilter()
 	assertGolden(t, "create-select-textfilter", m.View())
 
 	// Inline error box
-	m.flatBundleFilter.input.SetValue("")
+	m.create.flatBundleFilter.input.SetValue("")
 	m.applyFlatBundleFilter()
-	m.bundleSelectErr = "boom: could not load bundle definition"
+	m.create.bundleSelectErr = "boom: could not load bundle definition"
 	assertGolden(t, "create-select-error", m.View())
 }
 
@@ -175,16 +178,18 @@ func TestGoldenOverviewView(t *testing.T) {
 		width:       100,
 		height:      32,
 		viewState:   ViewOverview,
-		commands:    []string{"Scaffold", "Reconfigure", "Promote", "Quit"},
-		focus:       FocusCommands,
+		overview: overviewState{
+			commands: []string{"Scaffold", "Reconfigure", "Promote", "Quit"},
+			focus:    FocusCommands,
+		},
 	}
 
 	assertGolden(t, "overview-basic", m.View())
 
 	// Inline error area below the command grid.
-	m.currentErr = errors.E("No bundles available.")
+	m.overview.currentErr = errors.E("No bundles available.")
 	assertGolden(t, "overview-error", m.View())
-	m.currentErr = nil
+	m.overview.currentErr = nil
 
 	// Session-history panel: vpc-1 reconfigured this session and last saved.
 	key := sessionBundleKey(bundles[0].Info.HostPath(), bundles[0].Environment)
@@ -193,6 +198,6 @@ func TestGoldenOverviewView(t *testing.T) {
 	assertGolden(t, "overview-session-unfocused", m.View())
 
 	// Same state with the summary panel focused.
-	m.focus = FocusSummary
+	m.overview.focus = FocusSummary
 	assertGolden(t, "overview-session-focused", m.View())
 }

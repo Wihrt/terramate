@@ -20,7 +20,7 @@ import (
 
 func (m Model) updateOverview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// Clear transient state on update.
-	m.currentErr = nil
+	m.overview.currentErr = nil
 	m.lastSavedKey = ""
 
 	sessionBundles := m.sessionBundles()
@@ -28,33 +28,33 @@ func (m Model) updateOverview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// --- Commands / Summary focus ---
 	switch {
 	case key.Matches(msg, keys.Tab):
-		switch m.focus {
+		switch m.overview.focus {
 		case FocusCommands:
 			if len(sessionBundles) > 0 {
-				m.focus = FocusSummary
+				m.overview.focus = FocusSummary
 			} else {
-				m.focus = FocusCommands
+				m.overview.focus = FocusCommands
 				return m, textarea.Blink
 			}
 		case FocusSummary:
-			m.focus = FocusCommands
+			m.overview.focus = FocusCommands
 			return m, textarea.Blink
 		}
 		return m, nil
 
 	case key.Matches(msg, keys.Enter):
-		switch m.focus {
+		switch m.overview.focus {
 		case FocusCommands:
 			m.executeCommand()
 			if m.cancelled {
 				return m, tea.Quit
 			}
 		case FocusSummary:
-			if m.summaryCursor < len(sessionBundles) {
-				if err := m.loadReconfigBundle(sessionBundles[m.summaryCursor]); err != nil {
+			if m.overview.summaryCursor < len(sessionBundles) {
+				if err := m.loadReconfigBundle(sessionBundles[m.overview.summaryCursor]); err != nil {
 					return m.updateError(err)
 				}
-				m.reconfigFromOverview = true
+				m.reconfig.fromOverview = true
 				m.viewState = ViewReconfigInput
 				return m, m.inputsForm.FocusActiveInput()
 			}
@@ -62,33 +62,33 @@ func (m Model) updateOverview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, keys.Up):
-		if m.focus == FocusSummary && m.summaryCursor > 0 {
-			m.summaryCursor--
+		if m.overview.focus == FocusSummary && m.overview.summaryCursor > 0 {
+			m.overview.summaryCursor--
 		}
 		return m, nil
 
 	case key.Matches(msg, keys.Down):
-		if m.focus == FocusSummary && m.summaryCursor < len(sessionBundles)-1 {
-			m.summaryCursor++
+		if m.overview.focus == FocusSummary && m.overview.summaryCursor < len(sessionBundles)-1 {
+			m.overview.summaryCursor++
 		}
 		return m, nil
 
 	case key.Matches(msg, keys.Right):
-		if m.focus == FocusCommands {
-			if m.commandIdx < len(m.commands)-1 {
-				m.commandIdx++
+		if m.overview.focus == FocusCommands {
+			if m.overview.commandIdx < len(m.overview.commands)-1 {
+				m.overview.commandIdx++
 			} else {
-				m.commandIdx = 0
+				m.overview.commandIdx = 0
 			}
 		}
 		return m, nil
 
 	case key.Matches(msg, keys.Left):
-		if m.focus == FocusCommands {
-			if m.commandIdx > 0 {
-				m.commandIdx--
+		if m.overview.focus == FocusCommands {
+			if m.overview.commandIdx > 0 {
+				m.overview.commandIdx--
 			} else {
-				m.commandIdx = len(m.commands) - 1
+				m.overview.commandIdx = len(m.overview.commands) - 1
 			}
 		}
 		return m, nil
@@ -96,7 +96,7 @@ func (m Model) updateOverview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.Escape):
 		return m, nil
 
-	case m.focus == FocusCommands && m.selectCommandByKey(msg.String()):
+	case m.overview.focus == FocusCommands && m.selectCommandByKey(msg.String()):
 		m.executeCommand()
 		if m.cancelled {
 			return m, tea.Quit
@@ -111,55 +111,55 @@ func (m Model) updateOverview(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // executeCommand handles the currently selected command.
 func (m *Model) executeCommand() {
 	est := m.EngineState
-	if m.commandIdx < 0 || m.commandIdx >= len(m.commands) {
+	if m.overview.commandIdx < 0 || m.overview.commandIdx >= len(m.overview.commands) {
 		return
 	}
-	cmd := m.commands[m.commandIdx]
+	cmd := m.overview.commands[m.overview.commandIdx]
 
 	switch cmd {
 	case "Scaffold":
 		if len(est.Collections) == 0 {
-			m.currentErr = errors.E("No collections available. Configure package sources to get started.")
+			m.overview.currentErr = errors.E("No collections available. Configure package sources to get started.")
 			return
 		}
-		m.allFlatBundles = buildFlatBundles(est)
-		if len(m.allFlatBundles) == 0 {
-			m.currentErr = errors.E("No bundles available.")
+		m.create.allFlatBundles = buildFlatBundles(est)
+		if len(m.create.allFlatBundles) == 0 {
+			m.overview.currentErr = errors.E("No bundles available.")
 			return
 		}
-		m.flatBundleFilter = newTextFilter()
+		m.create.flatBundleFilter = newTextFilter()
 		m.applyFlatBundleFilter()
 		m.viewState = ViewCreateSelect
 	case "Reconfigure":
-		m.reconfigEnvFilter.pos = -1
-		m.reconfigFilter = newTextFilter()
-		m.reconfigEnvFilter.filters = m.buildReconfigFilters()
-		m.reconfigBundles = m.buildReconfigBundles()
-		if len(m.reconfigBundles) == 0 {
+		m.reconfig.envFilter.pos = -1
+		m.reconfig.filter = newTextFilter()
+		m.reconfig.envFilter.filters = m.buildReconfigFilters()
+		m.reconfig.bundles = m.buildReconfigBundles()
+		if len(m.reconfig.bundles) == 0 {
 			if len(est.Registry.Bundles) == 0 {
-				m.currentErr = errors.E("No bundles found in the project. Add bundles first.")
+				m.overview.currentErr = errors.E("No bundles found in the project. Add bundles first.")
 			} else {
-				m.currentErr = errors.E("No bundles available for reconfiguration.")
+				m.overview.currentErr = errors.E("No bundles available for reconfiguration.")
 			}
 			return
 		}
 		m.viewState = ViewReconfigSelect
-		m.reconfigCursor = 0
+		m.reconfig.cursor = 0
 	case "Promote":
-		m.promoteEnvFilter.pos = -1
-		m.promoteFilter = newTextFilter()
-		m.promoteEnvFilter.filters = m.buildPromoteFilters()
-		m.promoteBundles, m.promoteTargetEnvs = m.buildAllPromoteBundles()
-		if len(m.promoteBundles) == 0 {
+		m.promote.envFilter.pos = -1
+		m.promote.filter = newTextFilter()
+		m.promote.envFilter.filters = m.buildPromoteFilters()
+		m.promote.bundles, m.promote.targetEnvs = m.buildAllPromoteBundles()
+		if len(m.promote.bundles) == 0 {
 			if len(est.Registry.Environments) == 0 {
-				m.currentErr = errors.E("This action requires environments, but none are configured.")
+				m.overview.currentErr = errors.E("This action requires environments, but none are configured.")
 			} else {
-				m.currentErr = errors.E("No bundles available for promotion.")
+				m.overview.currentErr = errors.E("No bundles available for promotion.")
 			}
 			return
 		}
 		m.viewState = ViewPromoteSelect
-		m.promoteCursor = 0
+		m.promote.cursor = 0
 	case "Quit":
 		m.cancelled = true
 	}
@@ -281,9 +281,9 @@ func (m Model) renderOverviewView() string {
 	var mainContent string
 
 	parts := []string{commandsGrid}
-	if m.currentErr != nil {
+	if m.overview.currentErr != nil {
 		errStyle := lipgloss.NewStyle().Foreground(colorError).PaddingLeft(4).Width(innerWidth)
-		parts = append(parts, "", errStyle.Render(m.currentErr.Error()))
+		parts = append(parts, "", errStyle.Render(m.overview.currentErr.Error()))
 	}
 	mainContent = contentStyle.Render(
 		lipgloss.JoinVertical(lipgloss.Left, parts...),
@@ -291,7 +291,7 @@ func (m Model) renderOverviewView() string {
 
 	var mainSection string
 	borderStyle := unfocusedBorderStyle
-	if m.focus == FocusCommands {
+	if m.overview.focus == FocusCommands {
 		borderStyle = focusedBorderStyle
 	}
 	mainSection = borderStyle.Render(mainContent)
@@ -300,7 +300,7 @@ func (m Model) renderOverviewView() string {
 	showHistoryPanel := len(sessionBundles) > 0
 
 	helpText := "s: scaffold • r: reconfigure • p: promote • q: quit"
-	if showHistoryPanel && m.focus == FocusSummary {
+	if showHistoryPanel && m.overview.focus == FocusSummary {
 		helpText = "enter: reconfigure • tab: switch section"
 	} else if showHistoryPanel {
 		helpText = "s: scaffold • r: reconfigure • p: promote • q: quit • tab: switch section"
@@ -324,7 +324,7 @@ func (m Model) renderOverviewView() string {
 	var content string
 	if showHistoryPanel {
 		var summaryTitle string
-		if m.focus == FocusSummary {
+		if m.overview.focus == FocusSummary {
 			summaryTitle = sectionTitleStyle.Render("Recently Changed — Select to Reconfigure")
 		} else {
 			summaryTitle = lipgloss.NewStyle().Foreground(colorTextMuted).Render("Recently Changed — Select to Reconfigure")
@@ -333,7 +333,7 @@ func (m Model) renderOverviewView() string {
 		scrollbarGutter := 4
 		contentWidth := innerWidth - scrollbarGutter
 		groups := groupBundles(sessionBundles)
-		selectedGroupIdx, items := m.renderSessionBundleItems(groups, m.summaryCursor, contentWidth)
+		selectedGroupIdx, items := m.renderSessionBundleItems(groups, m.overview.summaryCursor, contentWidth)
 
 		availableHeight := m.effectiveContentHeight()
 		start, end := scrollWindowVar(selectedGroupIdx, items, availableHeight, 0)
@@ -361,7 +361,7 @@ func (m Model) renderOverviewView() string {
 		)
 
 		var historySection string
-		if m.focus == FocusSummary {
+		if m.overview.focus == FocusSummary {
 			historySection = focusedBorderStyle.Render(summaryFull)
 		} else {
 			historySection = unfocusedBorderStyle.Render(summaryFull)
@@ -419,9 +419,9 @@ func (m Model) renderHeader(context string) string {
 // Returns true if a command was matched and commandIdx was updated.
 func (m *Model) selectCommandByKey(key string) bool {
 	key = strings.ToLower(key)
-	for i, cmd := range m.commands {
+	for i, cmd := range m.overview.commands {
 		if cm, ok := commandMeta[cmd]; ok && cm.hotkey == key {
-			m.commandIdx = i
+			m.overview.commandIdx = i
 			return true
 		}
 	}
@@ -459,7 +459,7 @@ func (m Model) renderCommandGrid(_ int) string {
 		return style.Render(cmd[:idx]) + underlineStyle.Render(cmd[idx:idx+len(hotkey)]) + style.Render(cmd[idx+len(hotkey):])
 	}
 
-	cmds := m.commands
+	cmds := m.overview.commands
 	if len(cmds) == 0 {
 		return ""
 	}
@@ -468,7 +468,7 @@ func (m Model) renderCommandGrid(_ int) string {
 
 	var rowStr string
 	for i, cmd := range cmds {
-		isSelected := m.focus == FocusCommands && i == m.commandIdx
+		isSelected := m.overview.focus == FocusCommands && i == m.overview.commandIdx
 		cm := commandMeta[cmd]
 
 		var rendered string
@@ -490,10 +490,10 @@ func (m Model) renderCommandGrid(_ int) string {
 
 // selectedCommandHint returns the hint text for the currently selected command button, or "".
 func (m Model) selectedCommandHint() string {
-	if m.focus != FocusCommands || m.commandIdx < 0 || m.commandIdx >= len(m.commands) {
+	if m.overview.focus != FocusCommands || m.overview.commandIdx < 0 || m.overview.commandIdx >= len(m.overview.commands) {
 		return ""
 	}
-	if cm, ok := commandMeta[m.commands[m.commandIdx]]; ok {
+	if cm, ok := commandMeta[m.overview.commands[m.overview.commandIdx]]; ok {
 		return cm.hint
 	}
 	return ""
@@ -501,7 +501,7 @@ func (m Model) selectedCommandHint() string {
 
 // renderSessionBundleItems renders grouped session bundles with change kind tags.
 func (m Model) renderSessionBundleItems(groups []bundleGroup, cursor, contentWidth int) (int, []renderedItem) {
-	focused := m.focus == FocusSummary
+	focused := m.overview.focus == FocusSummary
 
 	dimStyle := lipgloss.NewStyle().Foreground(colorTextMuted)
 

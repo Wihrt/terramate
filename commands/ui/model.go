@@ -131,6 +131,58 @@ func (est *EngineState) loadBundleEvalContext(bde *config.BundleDefinitionEntry,
 	}, nil
 }
 
+// overviewState groups the Model fields owned by the overview view.
+type overviewState struct {
+	focus         FocusArea
+	commandIdx    int
+	commands      []string
+	summaryCursor int   // Selected row in the session bundles list
+	currentErr    error // Shown in the overview error area, cleared on next keypress
+}
+
+// createState groups the Model fields owned by the create flow
+// (flat bundle selection, environment selection, and the create wizard).
+type createState struct {
+	// Bundle selection state (flat list)
+	allFlatBundles       []flatBundleEntry // Unfiltered master list, rebuilt each time Scaffold is entered
+	flatBundles          []flatBundleEntry // Filtered view of allFlatBundles for the current filter query
+	flatBundleFilter     textFilter        // Free-text filter state for the flat bundle list
+	flatBundleCursor     int
+	selectedCollIdx      int // Set by selectFlatBundle, used by loadBundleDef
+	selectedBundleIdx    int // Set by selectFlatBundle, used by loadBundleDef
+	selectedBundleSource string
+	bundleSelectErr      string // Inline error shown in the bundle list view, cleared on cursor move
+	envCursor            int    // Cursor for ViewCreateEnvSelect
+
+	// Wizard exit confirmation
+	confirmingExit bool // true when showing wizard exit confirmation
+	exitConfirmIdx int  // 0 = Yes, 1 = No
+
+	// Bundle reference / nested creation state
+	stack          []CreateFrame // Stack of suspended wizard states
+	nestedRefClass string        // When non-empty, we're creating a bundle for this class
+}
+
+// reconfigState groups the Model fields owned by the reconfigure flow.
+type reconfigState struct {
+	bundles      []*config.Bundle // Filtered bundles for current filter, rebuilt on filter change
+	cursor       int              // Cursor in bundles
+	bundle       *config.Bundle   // The bundle currently being reconfigured
+	fromOverview bool             // true when reconfig was entered from session panel (skip ViewReconfigSelect on ESC)
+	envFilter    envFilterCycle   // Precomputed valid env filter states + cycle position
+	filter       textFilter       // Free-text filter state for the Reconfigure bundle list
+}
+
+// promoteState groups the Model fields owned by the promote flow.
+type promoteState struct {
+	bundles    []*config.Bundle      // Filtered bundles for current filter
+	targetEnvs []*config.Environment // Target env per bundle (parallel to bundles)
+	cursor     int                   // Cursor in bundles
+	bundle     *config.Bundle        // The bundle currently being promoted
+	envFilter  envFilterCycle        // Precomputed valid env filter states + cycle position
+	filter     textFilter            // Free-text filter state for the Promote bundle list
+}
+
 // Model is the main BubbleTea model for the prompt UI.
 type Model struct {
 	// Layout
@@ -143,59 +195,26 @@ type Model struct {
 	// View state
 	viewState ViewState
 
-	// Environment selection state
-	selectedEnv *config.Environment
+	// Per-view sub-states
+	overview overviewState
+	create   createState
+	reconfig reconfigState
+	promote  promoteState
 
-	// Overview state
-	focus      FocusArea
-	commandIdx int
-	commands   []string
-
-	summaryCursor        int                      // Selected row in the session bundles list
-	changeLog            []string                 // cumulative log of all saved changes across the session (for CLI exit)
-	sessionChanges       map[string][]change.Kind // bundle key → ordered list of change kinds applied this session
-	lastSavedKey         string                   // bundle key of the most recently saved change (cleared on next keypress)
-	confirmingCreateExit bool                     // true when showing wizard exit confirmation
-	createExitConfirmIdx int                      // 0 = Yes, 1 = No
-
-	// Bundle selection state (flat list)
-	allFlatBundles         []flatBundleEntry // Unfiltered master list, rebuilt each time Scaffold is entered
-	flatBundles            []flatBundleEntry // Filtered view of allFlatBundles for the current filter query
-	flatBundleFilter       textFilter        // Free-text filter state for the flat bundle list
-	flatBundleCursor       int
-	selectedCollIdx        int // Set by selectFlatBundle, used by loadBundleDef
-	selectedBundleIdx      int // Set by selectFlatBundle, used by loadBundleDef
+	// Shared selection/form state, written by the select views and read by
+	// the input views across the create/reconfig/promote flows.
+	selectedEnv            *config.Environment
 	selectedBundleDefEntry *config.BundleDefinitionEntry
-	selectedBundleSource   string
 	inputsForm             InputsForm
-	createEnvCursor        int // Cursor for ViewCreateEnvSelect
+	objectEditStack        []ObjectEditFrame // Stack for nested object input editing
 
-	// Bundle reference / nested creation state
-	createStack    []CreateFrame // Stack of suspended wizard states
-	nestedRefClass string        // When non-empty, we're creating a bundle for this class
-
-	// Object input nested editing state
-	objectEditStack []ObjectEditFrame // Stack for nested object input editing
-
-	// Reconfigure state
-	reconfigBundles      []*config.Bundle // Filtered bundles for current filter, rebuilt on filter change
-	reconfigCursor       int              // Cursor in reconfigBundles
-	reconfigBundle       *config.Bundle   // The bundle currently being reconfigured
-	reconfigFromOverview bool             // true when reconfig was entered from session panel (skip ViewReconfigSelect on ESC)
-	reconfigEnvFilter    envFilterCycle   // Precomputed valid env filter states + cycle position
-	reconfigFilter       textFilter       // Free-text filter state for the Reconfigure bundle list
-
-	// Promote state
-	promoteBundles    []*config.Bundle      // Filtered bundles for current filter
-	promoteTargetEnvs []*config.Environment // Target env per bundle (parallel to promoteBundles)
-	promoteCursor     int                   // Cursor in promoteBundles
-	promoteBundle     *config.Bundle        // The bundle currently being promoted
-	promoteEnvFilter  envFilterCycle        // Precomputed valid env filter states + cycle position
-	promoteFilter     textFilter            // Free-text filter state for the Promote bundle list
+	// Session history, appended on every save; read by the overview panel
+	// and by the CLI exit path (ui.go).
+	changeLog      []string                 // cumulative log of all saved changes across the session (for CLI exit)
+	sessionChanges map[string][]change.Kind // bundle key → ordered list of change kinds applied this session
+	lastSavedKey   string                   // bundle key of the most recently saved change (cleared on next keypress)
 
 	// Transient status
-	currentErr       error  // Shown in the overview error area, cleared on next keypress
-	bundleSelectErr  string // Inline error shown in the bundle list view, cleared on cursor move
 	ctrlCPending     bool   // true after first ctrl+c press, reset after 1s
 	errorDialogTitle string // Title for the error dialog (e.g. "Bundle is not enabled")
 	errorDialogText  string // When non-empty, shows a dismissible error dialog overlay
@@ -252,13 +271,15 @@ func NewModel(est *EngineState) Model {
 	return Model{
 		EngineState: est,
 		viewState:   ViewOverview,
-		commands: []string{
-			"Scaffold",
-			"Reconfigure",
-			"Promote",
-			"Quit",
+		overview: overviewState{
+			commands: []string{
+				"Scaffold",
+				"Reconfigure",
+				"Promote",
+				"Quit",
+			},
+			focus: FocusCommands,
 		},
-		focus: FocusCommands,
 	}
 }
 

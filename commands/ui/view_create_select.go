@@ -59,18 +59,18 @@ func flatBundleMatchesFilter(entry flatBundleEntry, query string) bool {
 	return strings.Contains(strings.ToLower(entry.bundle.Name), strings.ToLower(query))
 }
 
-// applyFlatBundleFilter recomputes m.flatBundles from m.allFlatBundles using
+// applyFlatBundleFilter recomputes m.create.flatBundles from m.create.allFlatBundles using
 // the current filter query, and resets the cursor.
 func (m *Model) applyFlatBundleFilter() {
-	query := m.flatBundleFilter.query()
-	m.flatBundles = nil
-	for _, entry := range m.allFlatBundles {
+	query := m.create.flatBundleFilter.query()
+	m.create.flatBundles = nil
+	for _, entry := range m.create.allFlatBundles {
 		if flatBundleMatchesFilter(entry, query) {
-			m.flatBundles = append(m.flatBundles, entry)
+			m.create.flatBundles = append(m.create.flatBundles, entry)
 		}
 	}
-	m.flatBundleCursor = 0
-	m.bundleSelectErr = ""
+	m.create.flatBundleCursor = 0
+	m.create.bundleSelectErr = ""
 }
 
 // createSelectListViewCfg configures the shared list engine for the flat
@@ -82,16 +82,16 @@ var createSelectListViewCfg = listViewConfig{
 	helpLine:   func(m *Model) string { return m.flatBundleFilterHelp() },
 	listHeader: func(m *Model, innerWidth int) string { return m.flatBundleListHeader(innerWidth) },
 	buildItems: func(m *Model, contentWidth int) (int, []renderedItem) {
-		items := buildFlatBundleItems(m.flatBundles, m.flatBundleCursor, contentWidth)
-		return m.flatBundleCursor, items
+		items := buildFlatBundleItems(m.create.flatBundles, m.create.flatBundleCursor, contentWidth)
+		return m.create.flatBundleCursor, items
 	},
-	itemCount:    func(m *Model) int { return len(m.flatBundles) },
-	cursor:       func(m *Model) int { return m.flatBundleCursor },
-	setCursor:    func(m *Model, c int) { m.flatBundleCursor = c },
-	textFilter:   func(m *Model) *textFilter { return &m.flatBundleFilter },
+	itemCount:    func(m *Model) int { return len(m.create.flatBundles) },
+	cursor:       func(m *Model) int { return m.create.flatBundleCursor },
+	setCursor:    func(m *Model, c int) { m.create.flatBundleCursor = c },
+	textFilter:   func(m *Model) *textFilter { return &m.create.flatBundleFilter },
 	applyFilter:  func(m *Model) { m.applyFlatBundleFilter() },
 	envFilter:    func(_ *Model) *envFilterCycle { return nil },
-	onCursorMove: func(m *Model) { m.bundleSelectErr = "" },
+	onCursorMove: func(m *Model) { m.create.bundleSelectErr = "" },
 	onEnter:      func(m *Model) (tea.Model, tea.Cmd) { return m.selectFlatBundle() },
 	exit:         func(m *Model) { m.viewState = ViewOverview },
 	sep:          1,
@@ -103,16 +103,16 @@ func (m Model) updateCreateSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) selectFlatBundle() (tea.Model, tea.Cmd) {
-	if m.flatBundleCursor >= len(m.flatBundles) {
+	if m.create.flatBundleCursor >= len(m.create.flatBundles) {
 		return m, nil
 	}
-	entry := m.flatBundles[m.flatBundleCursor]
-	m.selectedCollIdx = entry.collIdx
-	m.selectedBundleIdx = entry.bundleIdx
+	entry := m.create.flatBundles[m.create.flatBundleCursor]
+	m.create.selectedCollIdx = entry.collIdx
+	m.create.selectedBundleIdx = entry.bundleIdx
 	m.selectedEnv = nil // reset so env picker shows for each bundle
 
 	if err := m.loadBundleDef(entry.collIdx, entry.bundleIdx); err != nil {
-		m.bundleSelectErr = err.Error()
+		m.create.bundleSelectErr = err.Error()
 		return m, nil
 	}
 
@@ -120,7 +120,7 @@ func (m Model) selectFlatBundle() (tea.Model, tea.Cmd) {
 	// show the env picker before proceeding to inputs.
 	if change.BundleRequiresEnv(m.EngineState.Evalctx, m.selectedBundleDefEntry.Define) &&
 		len(m.EngineState.Registry.Environments) > 0 {
-		m.createEnvCursor = 0
+		m.create.envCursor = 0
 		m.viewState = ViewCreateEnvSelect
 		return m, nil
 	}
@@ -179,11 +179,11 @@ func (m *Model) loadBundleDef(collIdx, bundleIdx int) error {
 	// defer checkBundleEnabled and schema evaluation to finalizeBundleWithEnv
 	// which runs after the user picks an environment.
 	// Skip deferral for nested creates — they inherit the parent's env.
-	if change.BundleRequiresEnv(est.Evalctx, bde.Define) && m.selectedEnv == nil && len(est.Registry.Environments) > 0 && len(m.createStack) == 0 {
-		m.selectedCollIdx = collIdx
-		m.selectedBundleIdx = bundleIdx
+	if change.BundleRequiresEnv(est.Evalctx, bde.Define) && m.selectedEnv == nil && len(est.Registry.Environments) > 0 && len(m.create.stack) == 0 {
+		m.create.selectedCollIdx = collIdx
+		m.create.selectedBundleIdx = bundleIdx
 		m.selectedBundleDefEntry = bde
-		m.selectedBundleSource = source
+		m.create.selectedBundleSource = source
 		return nil
 	}
 
@@ -220,10 +220,10 @@ func (m *Model) loadBundleDef(collIdx, bundleIdx int) error {
 		))
 	}
 
-	m.selectedCollIdx = collIdx
-	m.selectedBundleIdx = bundleIdx
+	m.create.selectedCollIdx = collIdx
+	m.create.selectedBundleIdx = bundleIdx
 	m.selectedBundleDefEntry = bde
-	m.selectedBundleSource = source
+	m.create.selectedBundleSource = source
 	m.inputsForm = NewInputsForm(inputDefs, schemactx, est.Registry, m.selectedEnv)
 	m.inputsForm.confirmLabel = "Save"
 	m.inputsForm.PanelWidth = m.effectiveWidth()
@@ -320,19 +320,19 @@ func (m Model) updateCreateEnvSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, keys.Up):
-		if m.createEnvCursor > 0 {
-			m.createEnvCursor--
+		if m.create.envCursor > 0 {
+			m.create.envCursor--
 		}
 		return m, nil
 
 	case key.Matches(msg, keys.Down):
-		if m.createEnvCursor < len(est.Registry.Environments)-1 {
-			m.createEnvCursor++
+		if m.create.envCursor < len(est.Registry.Environments)-1 {
+			m.create.envCursor++
 		}
 		return m, nil
 
 	case key.Matches(msg, keys.Enter):
-		m.selectedEnv = est.Registry.Environments[m.createEnvCursor]
+		m.selectedEnv = est.Registry.Environments[m.create.envCursor]
 		if err := m.finalizeBundleWithEnv(); err != nil {
 			m.selectedEnv = nil // rollback so env picker shows again
 			return m.updateError(err)
@@ -361,15 +361,15 @@ func (m Model) renderCreateEnvSelectView() string {
 	innerWidth := panelWidth - 4
 
 	bundleName := ""
-	if m.flatBundleCursor < len(m.flatBundles) {
-		bundleName = m.flatBundles[m.flatBundleCursor].bundle.Name
+	if m.create.flatBundleCursor < len(m.create.flatBundles) {
+		bundleName = m.create.flatBundles[m.create.flatBundleCursor].bundle.Name
 	}
 	header := m.renderHeader(fmt.Sprintf("Scaffold %s", bundleName))
 
 	// Bundle detail box — full details plus currently highlighted environment
 	var detailBox string
-	if m.flatBundleCursor < len(m.flatBundles) {
-		entry := m.flatBundles[m.flatBundleCursor]
+	if m.create.flatBundleCursor < len(m.create.flatBundles) {
+		entry := m.create.flatBundles[m.create.flatBundleCursor]
 		fields := []detailField{
 			{label: "Bundle", value: entry.bundle.Name + " v" + entry.bundle.Version, truncEnd: true},
 		}
@@ -377,8 +377,8 @@ func (m Model) renderCreateEnvSelectView() string {
 			fields = append(fields, detailField{label: "Class", value: entry.bundle.Class, truncEnd: true})
 		}
 		// Show currently highlighted environment
-		if m.createEnvCursor < len(est.Registry.Environments) {
-			fields = append(fields, detailField{label: "Environment", value: est.Registry.Environments[m.createEnvCursor].Name, truncEnd: true})
+		if m.create.envCursor < len(est.Registry.Environments) {
+			fields = append(fields, detailField{label: "Environment", value: est.Registry.Environments[m.create.envCursor].Name, truncEnd: true})
 		}
 		fields = append(fields, detailField{}) // separator
 		coll := est.Collections[entry.collIdx]
@@ -415,7 +415,7 @@ func (m Model) renderCreateEnvSelectView() string {
 	var items []string
 	for i, env := range est.Registry.Environments {
 		idTag := idStyle.Render("[" + env.ID + "]")
-		if i == m.createEnvCursor {
+		if i == m.create.envCursor {
 			items = append(items, selectedStyle.Render("› "+env.Name)+" "+idTag)
 		} else {
 			items = append(items, itemStyle.Render("  "+env.Name)+" "+idTag)
@@ -443,9 +443,9 @@ func (m Model) renderBundleSelectView() string {
 // filter state of the flat bundle list.
 func (m Model) flatBundleFilterHelp() string {
 	switch {
-	case m.flatBundleFilter.editing:
+	case m.create.flatBundleFilter.editing:
 		return "esc: clear • enter: apply"
-	case m.flatBundleFilter.input.Value() != "":
+	case m.create.flatBundleFilter.input.Value() != "":
 		return "/: edit filter • esc: clear filter"
 	default:
 		return "/: filter • esc: back"
@@ -468,9 +468,9 @@ func splitNameVersion(s string) (string, string) {
 // to compute the available height for PgUp/PgDn page-jump math.
 func (m Model) flatBundleListHeader(innerWidth int) string {
 	var detailBox string
-	if m.flatBundleCursor < len(m.flatBundles) {
+	if m.create.flatBundleCursor < len(m.create.flatBundles) {
 		est := m.EngineState
-		entry := m.flatBundles[m.flatBundleCursor]
+		entry := m.create.flatBundles[m.create.flatBundleCursor]
 		fields := []detailField{
 			{label: "Bundle", value: entry.bundle.Name + " v" + entry.bundle.Version, truncEnd: true},
 		}
@@ -493,13 +493,13 @@ func (m Model) flatBundleListHeader(innerWidth int) string {
 	}
 
 	var headerParts []string
-	if m.flatBundleFilter.editing || m.flatBundleFilter.input.Value() != "" {
+	if m.create.flatBundleFilter.editing || m.create.flatBundleFilter.input.Value() != "" {
 		filterStyle := lipgloss.NewStyle().Foreground(colorTextMuted)
-		headerParts = append(headerParts, filterStyle.Render(m.flatBundleFilter.input.View()), "")
+		headerParts = append(headerParts, filterStyle.Render(m.create.flatBundleFilter.input.View()), "")
 	}
 	headerParts = append(headerParts, detailBox)
-	if m.bundleSelectErr != "" {
-		headerParts = append(headerParts, renderErrorBox(innerWidth, m.bundleSelectErr))
+	if m.create.bundleSelectErr != "" {
+		headerParts = append(headerParts, renderErrorBox(innerWidth, m.create.bundleSelectErr))
 	}
 	headerParts = append(headerParts, "")
 	return lipgloss.JoinVertical(lipgloss.Left, headerParts...)

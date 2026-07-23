@@ -19,22 +19,22 @@ import (
 // promoteEnvFlow renders the "source → target" env annotation of the
 // Promote list rows.
 func promoteEnvFlow(m *Model, b *config.Bundle, globalIdx int) string {
-	if globalIdx >= len(m.promoteTargetEnvs) || b.Environment == nil {
+	if globalIdx >= len(m.promote.targetEnvs) || b.Environment == nil {
 		return ""
 	}
 	envStyle := lipgloss.NewStyle().Foreground(colorTextMuted)
 	sourceEnvName := envNameForID(m.EngineState.Registry.Environments, b.Environment.ID)
-	targetEnvName := m.promoteTargetEnvs[globalIdx].Name
+	targetEnvName := m.promote.targetEnvs[globalIdx].Name
 	return envStyle.Render(sourceEnvName + " → " + targetEnvName)
 }
 
 // promoteBreadcrumb builds the Promote title reflecting active filters.
 func (m *Model) promoteBreadcrumb() string {
 	breadcrumb := "Promote Bundle Instance"
-	if f := m.promoteEnvFilter.current(); f != nil {
+	if f := m.promote.envFilter.current(); f != nil {
 		breadcrumb = "Promote Bundle Instance to " + f.label
 	}
-	if query := m.promoteFilter.input.Value(); query != "" {
+	if query := m.promote.filter.input.Value(); query != "" {
 		breadcrumb += fmt.Sprintf(" — filter: %q", query)
 	}
 	return breadcrumb
@@ -43,22 +43,22 @@ func (m *Model) promoteBreadcrumb() string {
 var promoteListViewCfg = listViewConfig{
 	breadcrumb: func(m *Model) string { return m.promoteBreadcrumb() },
 	helpLine: func(m *Model) string {
-		return selectHelpLine(&m.promoteFilter, &m.promoteEnvFilter, "show target env ")
+		return selectHelpLine(&m.promote.filter, &m.promote.envFilter, "show target env ")
 	},
 	listHeader: func(m *Model, innerWidth int) string { return m.promoteListHeader(innerWidth) },
 	buildItems: func(m *Model, contentWidth int) (int, []renderedItem) {
-		return renderGroupedItems(m, groupBundles(m.promoteBundles), m.promoteCursor, contentWidth, groupedItemsOpts{padAliases: true, annotate: promoteEnvFlow})
+		return renderGroupedItems(m, groupBundles(m.promote.bundles), m.promote.cursor, contentWidth, groupedItemsOpts{padAliases: true, annotate: promoteEnvFlow})
 	},
-	itemCount:   func(m *Model) int { return len(m.promoteBundles) },
-	cursor:      func(m *Model) int { return m.promoteCursor },
-	setCursor:   func(m *Model, c int) { m.promoteCursor = c },
-	textFilter:  func(m *Model) *textFilter { return &m.promoteFilter },
+	itemCount:   func(m *Model) int { return len(m.promote.bundles) },
+	cursor:      func(m *Model) int { return m.promote.cursor },
+	setCursor:   func(m *Model, c int) { m.promote.cursor = c },
+	textFilter:  func(m *Model) *textFilter { return &m.promote.filter },
 	applyFilter: func(m *Model) { m.applyPromoteFilter() },
-	envFilter:   func(m *Model) *envFilterCycle { return &m.promoteEnvFilter },
+	envFilter:   func(m *Model) *envFilterCycle { return &m.promote.envFilter },
 	onEnter: func(m *Model) (tea.Model, tea.Cmd) {
-		if m.promoteCursor < len(m.promoteBundles) {
-			targetEnv := m.promoteTargetEnvs[m.promoteCursor]
-			if err := m.loadPromoteBundle(m.promoteBundles[m.promoteCursor], targetEnv); err != nil {
+		if m.promote.cursor < len(m.promote.bundles) {
+			targetEnv := m.promote.targetEnvs[m.promote.cursor]
+			if err := m.loadPromoteBundle(m.promote.bundles[m.promote.cursor], targetEnv); err != nil {
 				return m.updateError(err)
 			}
 			m.viewState = ViewPromoteInput
@@ -77,8 +77,8 @@ func (m Model) updatePromoteSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // applyPromoteFilter rebuilds the bundle list based on the current filter position.
 func (m *Model) applyPromoteFilter() {
-	m.promoteBundles, m.promoteTargetEnvs = m.buildAllPromoteBundles()
-	m.promoteCursor = 0
+	m.promote.bundles, m.promote.targetEnvs = m.buildAllPromoteBundles()
+	m.promote.cursor = 0
 }
 
 // loadPromoteBundle loads the bundle definition for the given bundle,
@@ -102,7 +102,7 @@ func (m *Model) loadPromoteBundle(b *config.Bundle, targetEnv *config.Environmen
 	values := change.InputsToValueMap(b.Inputs)
 	change.NormalizeBundleRefValues(inputDefs, values)
 
-	m.promoteBundle = b
+	m.promote.bundle = b
 	m.selectedBundleDefEntry = bde
 	m.inputsForm = NewInputsFormWithValues(inputDefs, schemactx, est.Registry, targetEnv, b.Environment, values, values, change.RawInputKeys(b, schemactx.Evalctx))
 	m.inputsForm.confirmLabel = "Save"
@@ -171,7 +171,7 @@ func (m Model) buildAllPromoteBundles() ([]*config.Bundle, []*config.Environment
 
 	var bundles []*config.Bundle
 	var targetEnvs []*config.Environment
-	query := m.promoteFilter.query()
+	query := m.promote.filter.query()
 
 	for _, targetEnv := range est.Registry.Environments {
 		if targetEnv.PromoteFrom == "" {
@@ -179,7 +179,7 @@ func (m Model) buildAllPromoteBundles() ([]*config.Bundle, []*config.Environment
 		}
 
 		// Apply env filter: only show bundles promotable into the filtered target env
-		if f := m.promoteEnvFilter.current(); f != nil && f.env.ID != targetEnv.ID {
+		if f := m.promote.envFilter.current(); f != nil && f.env.ID != targetEnv.ID {
 			continue
 		}
 
@@ -235,8 +235,8 @@ func (m Model) renderPromoteSelectView() string {
 func (m Model) promoteListHeader(innerWidth int) string {
 	est := m.EngineState
 	var detailBox string
-	if m.promoteCursor < len(m.promoteBundles) {
-		b := m.promoteBundles[m.promoteCursor]
+	if m.promote.cursor < len(m.promote.bundles) {
+		b := m.promote.bundles[m.promote.cursor]
 		fields := []detailField{
 			{label: "Bundle", value: b.DefinitionMetadata.Name + " v" + b.DefinitionMetadata.Version, truncEnd: true},
 		}
@@ -244,9 +244,9 @@ func (m Model) promoteListHeader(innerWidth int) string {
 			fields = append(fields, detailField{label: "Class", value: b.DefinitionMetadata.Class, truncEnd: true})
 		}
 		fields = append(fields, detailField{label: "Alias", value: change.DisplayNameFromAlias(b.Alias, b.Name), truncEnd: true})
-		if m.promoteCursor < len(m.promoteTargetEnvs) {
+		if m.promote.cursor < len(m.promote.targetEnvs) {
 			sourceEnvName := envNameForID(est.Registry.Environments, b.Environment.ID)
-			targetEnvName := m.promoteTargetEnvs[m.promoteCursor].Name
+			targetEnvName := m.promote.targetEnvs[m.promote.cursor].Name
 			fields = append(fields, detailField{label: "Promote", value: sourceEnvName + " → " + targetEnvName, truncEnd: true})
 		}
 		fields = append(fields, detailField{}) // separator
@@ -258,9 +258,9 @@ func (m Model) promoteListHeader(innerWidth int) string {
 		detailBox = renderDetailBox(innerWidth, "Bundle Instance Details", fields)
 	}
 	var headerParts []string
-	if m.promoteFilter.editing || m.promoteFilter.input.Value() != "" {
+	if m.promote.filter.editing || m.promote.filter.input.Value() != "" {
 		filterStyle := lipgloss.NewStyle().Foreground(colorTextMuted)
-		headerParts = append(headerParts, filterStyle.Render(m.promoteFilter.input.View()), "")
+		headerParts = append(headerParts, filterStyle.Render(m.promote.filter.input.View()), "")
 	}
 	headerParts = append(headerParts, detailBox, "")
 	return lipgloss.JoinVertical(lipgloss.Left, headerParts...)
@@ -272,12 +272,12 @@ func (m Model) renderPromoteInputView() string {
 		Foreground(colorTextMuted).
 		Width(panelWidth)
 
-	b := m.promoteBundle
+	b := m.promote.bundle
 	aliasStyle := lipgloss.NewStyle().Foreground(colorCreate)
 	alias := aliasStyle.Render(change.DisplayNameFromAlias(b.Alias, b.Name))
 	var envTag string
-	if m.promoteCursor < len(m.promoteTargetEnvs) {
-		targetEnv := m.promoteTargetEnvs[m.promoteCursor]
+	if m.promote.cursor < len(m.promote.targetEnvs) {
+		targetEnv := m.promote.targetEnvs[m.promote.cursor]
 		envStyle := lipgloss.NewStyle().Foreground(colorPromote)
 		envTag = " " + envStyle.Render("["+targetEnv.Name+"]")
 	}
@@ -320,8 +320,8 @@ func (m Model) updatePromoteInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	var targetEnv *config.Environment
-	if m.promoteCursor < len(m.promoteTargetEnvs) {
-		targetEnv = m.promoteTargetEnvs[m.promoteCursor]
+	if m.promote.cursor < len(m.promote.targetEnvs) {
+		targetEnv = m.promote.targetEnvs[m.promote.cursor]
 	}
 
 	var cmd tea.Cmd
@@ -333,7 +333,7 @@ func (m Model) updatePromoteInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch m.inputsForm.State() {
 	case InputsFormAccepted:
-		ch, err := change.NewPromote(est.changeSession(), targetEnv, m.promoteBundle, m.selectedBundleDefEntry,
+		ch, err := change.NewPromote(est.changeSession(), targetEnv, m.promote.bundle, m.selectedBundleDefEntry,
 			m.inputsForm.Schemactx, m.inputsForm.InputDefs, m.inputsForm.UserValues(),
 		)
 		if err != nil {

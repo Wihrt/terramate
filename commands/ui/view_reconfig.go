@@ -29,14 +29,14 @@ func reconfigEnvTag(_ *Model, b *config.Bundle, _ int) string {
 // reconfigBreadcrumb builds the Reconfigure title reflecting active filters.
 func (m *Model) reconfigBreadcrumb() string {
 	breadcrumb := "Reconfigure Bundle Instance"
-	if f := m.reconfigEnvFilter.current(); f != nil {
+	if f := m.reconfig.envFilter.current(); f != nil {
 		if f.envLess {
 			breadcrumb = "Reconfigure Bundle Instance Without Environment"
 		} else {
 			breadcrumb = "Reconfigure Bundle Instance in " + f.label
 		}
 	}
-	if query := m.reconfigFilter.input.Value(); query != "" {
+	if query := m.reconfig.filter.input.Value(); query != "" {
 		breadcrumb += fmt.Sprintf(" — filter: %q", query)
 	}
 	return breadcrumb
@@ -45,21 +45,21 @@ func (m *Model) reconfigBreadcrumb() string {
 var reconfigListViewCfg = listViewConfig{
 	breadcrumb: func(m *Model) string { return m.reconfigBreadcrumb() },
 	helpLine: func(m *Model) string {
-		return selectHelpLine(&m.reconfigFilter, &m.reconfigEnvFilter, "show only ")
+		return selectHelpLine(&m.reconfig.filter, &m.reconfig.envFilter, "show only ")
 	},
 	listHeader: func(m *Model, innerWidth int) string { return m.reconfigListHeader(innerWidth) },
 	buildItems: func(m *Model, contentWidth int) (int, []renderedItem) {
-		return renderGroupedItems(m, groupBundles(m.reconfigBundles), m.reconfigCursor, contentWidth, groupedItemsOpts{annotate: reconfigEnvTag})
+		return renderGroupedItems(m, groupBundles(m.reconfig.bundles), m.reconfig.cursor, contentWidth, groupedItemsOpts{annotate: reconfigEnvTag})
 	},
-	itemCount:   func(m *Model) int { return len(m.reconfigBundles) },
-	cursor:      func(m *Model) int { return m.reconfigCursor },
-	setCursor:   func(m *Model, c int) { m.reconfigCursor = c },
-	textFilter:  func(m *Model) *textFilter { return &m.reconfigFilter },
+	itemCount:   func(m *Model) int { return len(m.reconfig.bundles) },
+	cursor:      func(m *Model) int { return m.reconfig.cursor },
+	setCursor:   func(m *Model, c int) { m.reconfig.cursor = c },
+	textFilter:  func(m *Model) *textFilter { return &m.reconfig.filter },
 	applyFilter: func(m *Model) { m.applyReconfigFilter() },
-	envFilter:   func(m *Model) *envFilterCycle { return &m.reconfigEnvFilter },
+	envFilter:   func(m *Model) *envFilterCycle { return &m.reconfig.envFilter },
 	onEnter: func(m *Model) (tea.Model, tea.Cmd) {
-		if m.reconfigCursor < len(m.reconfigBundles) {
-			if err := m.loadReconfigBundle(m.reconfigBundles[m.reconfigCursor]); err != nil {
+		if m.reconfig.cursor < len(m.reconfig.bundles) {
+			if err := m.loadReconfigBundle(m.reconfig.bundles[m.reconfig.cursor]); err != nil {
 				return m.updateError(err)
 			}
 			m.viewState = ViewReconfigInput
@@ -78,8 +78,8 @@ func (m Model) updateReconfigSelect(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // applyReconfigFilter rebuilds the bundle list based on the current filter position.
 func (m *Model) applyReconfigFilter() {
-	m.reconfigBundles = m.buildReconfigBundles()
-	m.reconfigCursor = 0
+	m.reconfig.bundles = m.buildReconfigBundles()
+	m.reconfig.cursor = 0
 }
 
 // loadReconfigBundle loads the bundle definition for the given bundle,
@@ -103,7 +103,7 @@ func (m *Model) loadReconfigBundle(b *config.Bundle) error {
 	values := change.InputsToValueMap(b.Inputs)
 	change.NormalizeBundleRefValues(inputDefs, values)
 
-	m.reconfigBundle = b
+	m.reconfig.bundle = b
 	m.selectedBundleDefEntry = bde
 	m.inputsForm = NewInputsFormWithValues(inputDefs, schemactx, est.Registry, b.Environment, nil, values, values, change.RawInputKeys(b, schemactx.Evalctx))
 	m.inputsForm.confirmLabel = "Save"
@@ -150,8 +150,8 @@ func (m Model) buildReconfigFilters() []envFilterState {
 // change.KindReconfig entry, sorted into grouped display order so that
 // the flat cursor index matches the visual position.
 func (m Model) buildReconfigBundles() []*config.Bundle {
-	f := m.reconfigEnvFilter.current()
-	query := m.reconfigFilter.query()
+	f := m.reconfig.envFilter.current()
+	query := m.reconfig.filter.query()
 	var filtered []*config.Bundle
 	for _, b := range m.EngineState.Registry.Bundles {
 		if f != nil {
@@ -187,8 +187,8 @@ func (m Model) renderReconfigSelectView() string {
 func (m Model) reconfigListHeader(innerWidth int) string {
 	est := m.EngineState
 	var detailBox string
-	if m.reconfigCursor < len(m.reconfigBundles) {
-		b := m.reconfigBundles[m.reconfigCursor]
+	if m.reconfig.cursor < len(m.reconfig.bundles) {
+		b := m.reconfig.bundles[m.reconfig.cursor]
 		fields := []detailField{
 			{label: "Bundle", value: b.DefinitionMetadata.Name + " v" + b.DefinitionMetadata.Version, truncEnd: true},
 		}
@@ -210,9 +210,9 @@ func (m Model) reconfigListHeader(innerWidth int) string {
 		detailBox = renderDetailBox(innerWidth, "Bundle Instance Details", fields)
 	}
 	var headerParts []string
-	if m.reconfigFilter.editing || m.reconfigFilter.input.Value() != "" {
+	if m.reconfig.filter.editing || m.reconfig.filter.input.Value() != "" {
 		filterStyle := lipgloss.NewStyle().Foreground(colorTextMuted)
-		headerParts = append(headerParts, filterStyle.Render(m.reconfigFilter.input.View()), "")
+		headerParts = append(headerParts, filterStyle.Render(m.reconfig.filter.input.View()), "")
 	}
 	headerParts = append(headerParts, detailBox, "")
 	return lipgloss.JoinVertical(lipgloss.Left, headerParts...)
@@ -224,7 +224,7 @@ func (m Model) renderReconfigInputView() string {
 		Foreground(colorTextMuted).
 		Width(panelWidth)
 
-	b := m.reconfigBundle
+	b := m.reconfig.bundle
 	aliasStyle := lipgloss.NewStyle().Foreground(colorCreate)
 	alias := aliasStyle.Render(change.DisplayNameFromAlias(b.Alias, b.Name))
 	envStyle := lipgloss.NewStyle().Foreground(colorPromote)
@@ -275,8 +275,8 @@ func (m Model) updateReconfigInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.inputsForm.focus = InputFocusActive
 			return m, nil
 		}
-		if m.reconfigFromOverview {
-			m.reconfigFromOverview = false
+		if m.reconfig.fromOverview {
+			m.reconfig.fromOverview = false
 			m.viewState = ViewOverview
 		} else {
 			m.viewState = ViewReconfigSelect
@@ -287,14 +287,14 @@ func (m Model) updateReconfigInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.inputsForm, cmd = m.inputsForm.Update(msg)
 
-	if handled, scmd := m.trySubFormStateTransition(m.reconfigBundle.Environment); handled {
+	if handled, scmd := m.trySubFormStateTransition(m.reconfig.bundle.Environment); handled {
 		return m, scmd
 	}
 
 	switch m.inputsForm.State() {
 	case InputsFormAccepted:
 		if m.inputsForm.HasPendingChanges() {
-			ch, err := change.NewReconfig(est.changeSession(), m.reconfigBundle, m.selectedBundleDefEntry,
+			ch, err := change.NewReconfig(est.changeSession(), m.reconfig.bundle, m.selectedBundleDefEntry,
 				m.inputsForm.Schemactx, m.inputsForm.InputDefs, m.inputsForm.UserValues(),
 			)
 			if err != nil {
@@ -314,11 +314,11 @@ func (m Model) updateReconfigInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 			m.recordSessionChange(ch)
 		}
-		m.reconfigFromOverview = false
+		m.reconfig.fromOverview = false
 		m.viewState = ViewOverview
 	case InputsFormDiscarded:
-		if m.reconfigFromOverview {
-			m.reconfigFromOverview = false
+		if m.reconfig.fromOverview {
+			m.reconfig.fromOverview = false
 			m.viewState = ViewOverview
 		} else {
 			m.viewState = ViewReconfigSelect

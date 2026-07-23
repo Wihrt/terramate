@@ -67,37 +67,37 @@ func TestUpdateCreateSelectFilter(t *testing.T) {
 		{bundle: &manifest.Bundle{Name: "vpc", Version: "1.0.0"}, collName: "local"},
 		{bundle: &manifest.Bundle{Name: "ecs", Version: "1.0.0"}, collName: "local"},
 	}
-	m := Model{viewState: ViewCreateSelect, allFlatBundles: entries, flatBundleFilter: newTextFilter()}
+	m := Model{viewState: ViewCreateSelect, create: createState{allFlatBundles: entries, flatBundleFilter: newTextFilter()}}
 	m.applyFlatBundleFilter()
 
 	// "/" enters filter-edit mode.
 	updated, _ := m.updateCreateSelect(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
 	m = updated.(Model)
-	if !m.flatBundleFilter.editing {
+	if !m.create.flatBundleFilter.editing {
 		t.Fatal("expected filter mode to be active after '/'")
 	}
 
 	// Typing narrows the list live.
 	updated, _ = m.updateCreateSelect(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("v")})
 	m = updated.(Model)
-	if len(m.flatBundles) != 1 || m.flatBundles[0].bundle.Name != "vpc" {
-		t.Fatalf("expected filter %q to narrow to [vpc], got %v", m.flatBundleFilter.input.Value(), m.flatBundles)
+	if len(m.create.flatBundles) != 1 || m.create.flatBundles[0].bundle.Name != "vpc" {
+		t.Fatalf("expected filter %q to narrow to [vpc], got %v", m.create.flatBundleFilter.input.Value(), m.create.flatBundles)
 	}
 
 	// Enter keeps the filter applied and exits edit mode.
 	updated, _ = m.updateCreateSelect(tea.KeyMsg{Type: tea.KeyEnter})
 	m = updated.(Model)
-	if m.flatBundleFilter.editing {
+	if m.create.flatBundleFilter.editing {
 		t.Fatal("expected filter mode to be inactive after enter")
 	}
-	if len(m.flatBundles) != 1 {
+	if len(m.create.flatBundles) != 1 {
 		t.Fatal("expected the filter to remain applied after enter")
 	}
 
 	// First esc (not editing, query set) clears the filter but stays on this view.
 	updated, _ = m.updateCreateSelect(tea.KeyMsg{Type: tea.KeyEsc})
 	m = updated.(Model)
-	if m.flatBundleFilter.input.Value() != "" || len(m.flatBundles) != 2 {
+	if m.create.flatBundleFilter.input.Value() != "" || len(m.create.flatBundles) != 2 {
 		t.Fatal("expected the first esc to clear the filter and restore the full list")
 	}
 	if m.viewState != ViewCreateSelect {

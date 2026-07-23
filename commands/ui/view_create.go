@@ -17,26 +17,26 @@ import (
 
 func (m Model) updateCreateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	est := m.EngineState
-	if m.confirmingCreateExit {
+	if m.create.confirmingExit {
 		switch {
 		case key.Matches(msg, keys.Left):
-			if m.createExitConfirmIdx > 0 {
-				m.createExitConfirmIdx--
+			if m.create.exitConfirmIdx > 0 {
+				m.create.exitConfirmIdx--
 			}
 		case key.Matches(msg, keys.Right):
-			if m.createExitConfirmIdx < 1 {
-				m.createExitConfirmIdx++
+			if m.create.exitConfirmIdx < 1 {
+				m.create.exitConfirmIdx++
 			}
 		case key.Matches(msg, keys.Enter):
-			if m.createExitConfirmIdx == 0 {
-				m.confirmingCreateExit = false
+			if m.create.exitConfirmIdx == 0 {
+				m.create.confirmingExit = false
 				m.objectEditStack = nil
 				m.viewState = m.createBackView()
 				return m, textarea.Blink
 			}
-			m.confirmingCreateExit = false
+			m.create.confirmingExit = false
 		case key.Matches(msg, keys.Escape):
-			m.confirmingCreateExit = false
+			m.create.confirmingExit = false
 		}
 		return m, nil
 	}
@@ -48,13 +48,13 @@ func (m Model) updateCreateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	if key.Matches(msg, keys.Escape) && m.inputsForm.focus == InputFocusActive && !m.inputsForm.IsMultilineActive() {
-		if len(m.createStack) > 0 {
+		if len(m.create.stack) > 0 {
 			m.restoreCreateFrame("")
 			return m, nil
 		}
 		if m.inputsForm.hasAnyValues() {
-			m.confirmingCreateExit = true
-			m.createExitConfirmIdx = 1 // default to "No" (don't discard)
+			m.create.confirmingExit = true
+			m.create.exitConfirmIdx = 1 // default to "No" (don't discard)
 			return m, nil
 		}
 		m.viewState = m.createBackView()
@@ -98,14 +98,14 @@ func (m Model) updateCreateInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.recordSessionChange(ch)
 
-		if len(m.createStack) > 0 {
+		if len(m.create.stack) > 0 {
 			m.restoreCreateFrame(ch.Alias)
 		} else {
 			m.selectedEnv = nil
 			m.viewState = ViewOverview
 		}
 	case InputsFormDiscarded:
-		if len(m.createStack) > 0 {
+		if len(m.create.stack) > 0 {
 			m.restoreCreateFrame("")
 		} else {
 			m.viewState = m.createBackView()
@@ -129,8 +129,8 @@ func (m Model) renderCreateInputView() string {
 		Width(panelWidth)
 
 	bundleName := ""
-	if m.flatBundleCursor < len(m.flatBundles) {
-		bundleName = m.flatBundles[m.flatBundleCursor].bundle.Name
+	if m.create.flatBundleCursor < len(m.create.flatBundles) {
+		bundleName = m.create.flatBundles[m.create.flatBundleCursor].bundle.Name
 	}
 
 	var envTag string
@@ -143,10 +143,10 @@ func (m Model) renderCreateInputView() string {
 	}
 
 	var headerContext string
-	if len(m.createStack) > 0 {
+	if len(m.create.stack) > 0 {
 		// Build chain: Create ECS / Create VPC [staging]
-		parts := make([]string, 0, len(m.createStack)+1)
-		for _, frame := range m.createStack {
+		parts := make([]string, 0, len(m.create.stack)+1)
+		for _, frame := range m.create.stack {
 			parts = append(parts, "Scaffold "+frame.parentBundleName)
 		}
 		parts = append(parts, "Scaffold "+bundleName+" "+envTag)
@@ -158,7 +158,7 @@ func (m Model) renderCreateInputView() string {
 	title := m.renderHeader(headerContext)
 
 	var help string
-	if m.confirmingCreateExit {
+	if m.create.confirmingExit {
 		promptStyle := lipgloss.NewStyle().Foreground(colorWarning).Bold(true)
 		buttonStyle := lipgloss.NewStyle().
 			Padding(0, 1).
@@ -172,12 +172,12 @@ func (m Model) renderCreateInputView() string {
 		prompt := promptStyle.Render("Discard entered values?")
 
 		var yesBtn, noBtn string
-		if m.createExitConfirmIdx == 0 {
+		if m.create.exitConfirmIdx == 0 {
 			yesBtn = activeStyle.Render("Yes")
 		} else {
 			yesBtn = buttonStyle.Render("Yes")
 		}
-		if m.createExitConfirmIdx == 1 {
+		if m.create.exitConfirmIdx == 1 {
 			noBtn = activeStyle.Render("No")
 		} else {
 			noBtn = buttonStyle.Render("No")
@@ -237,38 +237,38 @@ func (m Model) createBackView() ViewState {
 // pushCreateFrame saves the current create state onto the stack.
 func (m *Model) pushCreateFrame() {
 	bundleName := ""
-	if m.flatBundleCursor < len(m.flatBundles) {
-		bundleName = m.flatBundles[m.flatBundleCursor].bundle.Name
+	if m.create.flatBundleCursor < len(m.create.flatBundles) {
+		bundleName = m.create.flatBundles[m.create.flatBundleCursor].bundle.Name
 	}
 	frame := CreateFrame{
-		flatBundleCursor:       m.flatBundleCursor,
-		selectedCollIdx:        m.selectedCollIdx,
-		selectedBundleIdx:      m.selectedBundleIdx,
+		flatBundleCursor:       m.create.flatBundleCursor,
+		selectedCollIdx:        m.create.selectedCollIdx,
+		selectedBundleIdx:      m.create.selectedBundleIdx,
 		selectedBundleDefEntry: m.selectedBundleDefEntry,
-		selectedBundleSource:   m.selectedBundleSource,
+		selectedBundleSource:   m.create.selectedBundleSource,
 		inputsForm:             m.inputsForm,
 		parentBundleName:       bundleName,
 	}
-	m.createStack = append(m.createStack, frame)
+	m.create.stack = append(m.create.stack, frame)
 }
 
 // restoreCreateFrame pops the last frame and restores the wizard state.
 // If newBundleAlias is non-empty, the bundle-ref input is set to that value and advanced.
 func (m *Model) restoreCreateFrame(newBundleAlias string) {
-	if len(m.createStack) == 0 {
+	if len(m.create.stack) == 0 {
 		return
 	}
-	frame := m.createStack[len(m.createStack)-1]
-	m.createStack = m.createStack[:len(m.createStack)-1]
+	frame := m.create.stack[len(m.create.stack)-1]
+	m.create.stack = m.create.stack[:len(m.create.stack)-1]
 	m.viewState = ViewCreateInput
-	m.flatBundleCursor = frame.flatBundleCursor
-	m.selectedCollIdx = frame.selectedCollIdx
-	m.selectedBundleIdx = frame.selectedBundleIdx
+	m.create.flatBundleCursor = frame.flatBundleCursor
+	m.create.selectedCollIdx = frame.selectedCollIdx
+	m.create.selectedBundleIdx = frame.selectedBundleIdx
 	m.selectedBundleDefEntry = frame.selectedBundleDefEntry
-	m.selectedBundleSource = frame.selectedBundleSource
+	m.create.selectedBundleSource = frame.selectedBundleSource
 	m.inputsForm = frame.inputsForm
 	m.inputsForm.state = InputsFormActive
-	m.nestedRefClass = ""
+	m.create.nestedRefClass = ""
 
 	if newBundleAlias != "" {
 		m.inputsForm.setBundleRefValue(newBundleAlias)
@@ -279,10 +279,10 @@ func (m *Model) restoreCreateFrame(newBundleAlias string) {
 // loads it, and enters the wizard. Falls back to the bundle list if no match is found.
 func (m *Model) startNestedCreate(refClass string) error {
 	// Nested bundles inherit the parent's environment — no env re-selection needed.
-	m.nestedRefClass = refClass
-	for i, entry := range m.flatBundles {
+	m.create.nestedRefClass = refClass
+	for i, entry := range m.create.flatBundles {
 		if entry.bundle.Class == refClass {
-			m.flatBundleCursor = i
+			m.create.flatBundleCursor = i
 			if err := m.loadBundleDef(entry.collIdx, entry.bundleIdx); err != nil {
 				return err
 			}

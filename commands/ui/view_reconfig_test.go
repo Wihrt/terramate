@@ -22,11 +22,13 @@ func TestBuildReconfigBundlesCombinesEnvAndTextFilter(t *testing.T) {
 	}
 
 	m := Model{
-		EngineState:       &EngineState{Registry: &config.Registry{Bundles: bundles, Environments: []*config.Environment{staging, prod}}},
-		reconfigEnvFilter: envFilterCycle{filters: []envFilterState{{env: staging, label: "Staging", shortID: "staging"}}, pos: 0},
-		reconfigFilter:    newTextFilter(),
+		EngineState: &EngineState{Registry: &config.Registry{Bundles: bundles, Environments: []*config.Environment{staging, prod}}},
+		reconfig: reconfigState{
+			envFilter: envFilterCycle{filters: []envFilterState{{env: staging, label: "Staging", shortID: "staging"}}, pos: 0},
+			filter:    newTextFilter(),
+		},
 	}
-	m.reconfigFilter.input.SetValue("vpc")
+	m.reconfig.filter.input.SetValue("vpc")
 
 	got := m.buildReconfigBundles()
 	if len(got) != 1 || got[0].Alias != "vpc-1" {
@@ -42,17 +44,19 @@ func TestUpdateReconfigSelectFilter(t *testing.T) {
 		{DefinitionMetadata: config.Metadata{Name: "ecs", Version: "1.0.0"}, Alias: "prod-ecs-1"},
 	}
 	m := Model{
-		EngineState:       &EngineState{Registry: &config.Registry{Bundles: bundles}},
-		viewState:         ViewReconfigSelect,
-		reconfigEnvFilter: envFilterCycle{pos: -1},
-		reconfigFilter:    newTextFilter(),
+		EngineState: &EngineState{Registry: &config.Registry{Bundles: bundles}},
+		viewState:   ViewReconfigSelect,
+		reconfig: reconfigState{
+			envFilter: envFilterCycle{pos: -1},
+			filter:    newTextFilter(),
+		},
 	}
-	m.reconfigBundles = m.buildReconfigBundles()
+	m.reconfig.bundles = m.buildReconfigBundles()
 
 	// "/" enters filter-edit mode.
 	updated, _ := m.updateReconfigSelect(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
 	m = updated.(Model)
-	if !m.reconfigFilter.editing {
+	if !m.reconfig.filter.editing {
 		t.Fatal("expected filter mode to be active after '/'")
 	}
 
@@ -61,14 +65,14 @@ func TestUpdateReconfigSelectFilter(t *testing.T) {
 	// in one call, which is equivalent to 3 separate keystrokes here.
 	updated, _ = m.updateReconfigSelect(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("vpc")})
 	m = updated.(Model)
-	if len(m.reconfigBundles) != 1 || m.reconfigBundles[0].Alias != "prod-vpc-1" {
-		t.Fatalf("expected the filter to narrow to [prod-vpc-1], got %v", m.reconfigBundles)
+	if len(m.reconfig.bundles) != 1 || m.reconfig.bundles[0].Alias != "prod-vpc-1" {
+		t.Fatalf("expected the filter to narrow to [prod-vpc-1], got %v", m.reconfig.bundles)
 	}
 
 	// esc clears the filter and stays on this view.
 	updated, _ = m.updateReconfigSelect(tea.KeyMsg{Type: tea.KeyEsc})
 	m = updated.(Model)
-	if len(m.reconfigBundles) != 2 {
+	if len(m.reconfig.bundles) != 2 {
 		t.Fatal("expected esc to clear the filter and restore both bundles")
 	}
 	if m.viewState != ViewReconfigSelect {
