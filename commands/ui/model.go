@@ -291,6 +291,25 @@ func (m Model) Init() tea.Cmd {
 	return textarea.Blink
 }
 
+// viewHandler pairs the update and render functions of one view state.
+type viewHandler struct {
+	update func(Model, tea.KeyMsg) (tea.Model, tea.Cmd)
+	render func(Model) string
+}
+
+// viewHandlers routes Update/View dispatch per view state. States absent
+// from the table (ViewOverview, or an out-of-range value) fall back to the
+// overview handlers, preserving the previous switch defaults.
+var viewHandlers = map[ViewState]viewHandler{
+	ViewCreateSelect:    {Model.updateCreateSelect, Model.renderBundleSelectView},
+	ViewCreateEnvSelect: {Model.updateCreateEnvSelect, Model.renderCreateEnvSelectView},
+	ViewCreateInput:     {Model.updateCreateInput, Model.renderCreateInputView},
+	ViewReconfigSelect:  {Model.updateReconfigSelect, Model.renderReconfigSelectView},
+	ViewReconfigInput:   {Model.updateReconfigInput, Model.renderReconfigInputView},
+	ViewPromoteSelect:   {Model.updatePromoteSelect, Model.renderPromoteSelectView},
+	ViewPromoteInput:    {Model.updatePromoteInput, Model.renderPromoteInputView},
+}
+
 // Update handles messages and updates the model.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -327,24 +346,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 
-		switch m.viewState {
-		case ViewCreateSelect:
-			return m.updateCreateSelect(msg)
-		case ViewCreateEnvSelect:
-			return m.updateCreateEnvSelect(msg)
-		case ViewCreateInput:
-			return m.updateCreateInput(msg)
-		case ViewReconfigSelect:
-			return m.updateReconfigSelect(msg)
-		case ViewReconfigInput:
-			return m.updateReconfigInput(msg)
-		case ViewPromoteSelect:
-			return m.updatePromoteSelect(msg)
-		case ViewPromoteInput:
-			return m.updatePromoteInput(msg)
-		default:
-			return m.updateOverview(msg)
+		if h, ok := viewHandlers[m.viewState]; ok {
+			return h.update(m, msg)
 		}
+		return m.updateOverview(msg)
 
 	default:
 		switch m.viewState {
@@ -361,22 +366,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // View renders the current view.
 func (m Model) View() string {
 	var base string
-	switch m.viewState {
-	case ViewCreateSelect:
-		base = m.renderBundleSelectView()
-	case ViewCreateEnvSelect:
-		base = m.renderCreateEnvSelectView()
-	case ViewCreateInput:
-		base = m.renderCreateInputView()
-	case ViewReconfigSelect:
-		base = m.renderReconfigSelectView()
-	case ViewReconfigInput:
-		base = m.renderReconfigInputView()
-	case ViewPromoteSelect:
-		base = m.renderPromoteSelectView()
-	case ViewPromoteInput:
-		base = m.renderPromoteInputView()
-	default:
+	if h, ok := viewHandlers[m.viewState]; ok {
+		base = h.render(m)
+	} else {
 		base = m.renderOverviewView()
 	}
 
